@@ -1,17 +1,13 @@
 {
   "expo": {
-    "name": "LCPR-app",
+    "name": "Le Chateau",
     "slug": "LCPR-app",
+    "scheme": "lcpr",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.LCPR-app"
@@ -26,6 +22,18 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#fafaf0",
+          "resizeMode": "contain",
+          "imageWidth": 220
+        }
+      ]
+    ]
   }
 }
