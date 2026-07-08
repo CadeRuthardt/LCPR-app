@@ -1,0 +1,28 @@
+export const colors = {
+  blackCherry: "#711012",
+  goldenrod: "#D5A727",
+  richMahogany: "#360808",
+  oliveBark: "#795E16",
+  ivory: "#FAFAF0",
+  onyx: "#111111",
+  graphite: "#292929",
+  porcelain: "#FFFDF6",
+  champagne: "#F4E8C8",
+  blush: "#F3E6DE",
+  parchment: "#F8F1DF",
+  sage: "#E7E2D1",
+  linen: "#FCF8EA",
+  mutedGold: "#A88424",
+  warmGray: "#766D65",
+  softGraphite: "#4A4240",
+  burgundyDeep: "#2B0304",
+  burgundyGlow: "#5B090A",
+  creamBorder: "#E9DFC7",
+  shadowTint: "#2A0707",
+  overlayDark: "rgba(17, 17, 17, 0.38)",
+  overlayDeep: "rgba(17, 17, 17, 0.58)",
+  overlayBurgundy: "rgba(43, 3, 4, 0.94)",
+  white: "#FFFFFF",
+} as const;
+
+export type ThemeColor = keyof typeof colors;
