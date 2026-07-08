@@ -1,6 +1,7 @@
 import { StyleSheet, View } from "react-native";
 
-import { Badge, Button, Card, Text } from "../primitives";
+import { Badge, Button, Card, Icon, Text } from "../primitives";
+import { colors } from "../../theme";
 import { spacing } from "../../theme";
 import type { Stay } from "../../types/app";
 
@@ -23,13 +24,22 @@ export function StayCard({ featured = false, stay }: StayCardProps) {
       </View>
       <View style={styles.copy}>
         <Text variant="heading" tone={textTone}>
-          {stay.petName}'s upcoming stay
+          {stay.petName}'s reservation
         </Text>
         <Text variant="body" tone={supportTone}>
-          {stay.experience} is being prepared with the resort team.
+          {stay.experience} · {stay.nights}
         </Text>
       </View>
-      {featured ? <Button title="View Stay Details" variant="secondary" /> : null}
+      {featured ? (
+        <Button icon="calendar" title="View Reservation Details" variant="secondary" />
+      ) : (
+        <View style={styles.footer}>
+          <Text variant="caption" tone="muted">
+            View reservation
+          </Text>
+          <Icon color={colors.warmGray} name="chevron-right" size={18} />
+        </View>
+      )}
     </Card>
   );
 }
@@ -45,5 +55,11 @@ const styles = StyleSheet.create({
   },
   copy: {
     gap: spacing.sm,
+  },
+  footer: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "flex-end",
   },
 });

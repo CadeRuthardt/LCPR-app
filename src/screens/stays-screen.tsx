@@ -1,7 +1,7 @@
 import { Image, StyleSheet, View } from "react-native";
 
 import { StayCard } from "@/components/composites";
-import { Badge, Button, Card, Screen, Section, Text } from "@/components/primitives";
+import { Badge, Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
 import { pets, stays, upcomingStay } from "@/data/mock-data";
 import { colors, radius, spacing } from "@/theme";
 
@@ -10,7 +10,7 @@ import { ScreenHeader } from "./screen-header";
 export function StaysScreen() {
   return (
     <Screen>
-      <ScreenHeader title="Stays" />
+      <ScreenHeader title="Reservations" />
       <View style={styles.segmented}>
         {["Upcoming", "Past", "Canceled"].map((segment, index) => (
           <View key={segment} style={[styles.segment, index === 0 && styles.segmentActive]}>
@@ -27,20 +27,20 @@ export function StaysScreen() {
           <View style={styles.petRowCopy}>
             <Text variant="title">{upcomingStay.dateRange}</Text>
             <Text variant="caption" tone="secondary">
-              4 nights
+              {upcomingStay.nights}
             </Text>
             <Text variant="caption" tone="muted">
               Confirmation pending
             </Text>
           </View>
-          <Text variant="title" tone="muted">
-            {">"}
-          </Text>
+          <Icon color={colors.warmGray} name="chevron-right" size={20} />
         </View>
         <View style={styles.progressRow}>
-          {["Requested", "Confirmed", "Pre-Arrival", "During Stay"].map((step, index) => (
+          {["Requested", "Confirmed", "Pre-Arrival", "During Reservation"].map((step, index) => (
             <View key={step} style={styles.progressStep}>
-              <View style={[styles.progressDot, index < 2 && styles.progressDotDone]} />
+              <View style={[styles.progressDot, index < 2 && styles.progressDotDone]}>
+                {index < 2 ? <Icon color={colors.ivory} name="check" size={15} /> : null}
+              </View>
               <Text variant="caption" tone="muted" style={styles.progressLabel}>
                 {step}
               </Text>
@@ -48,18 +48,24 @@ export function StaysScreen() {
           ))}
         </View>
         <View style={styles.bringRow}>
-          <Badge label="What to Bring" tone="attention" />
-          <Text variant="caption" tone="secondary">
-            Food, medications, toys, and more.
-          </Text>
+          <View style={styles.bringIcon}>
+            <Icon color={colors.blackCherry} name="calendar" size={20} />
+          </View>
+          <View style={styles.bringCopy}>
+            <Text variant="title">What to Bring</Text>
+            <Text variant="caption" tone="secondary">
+              Food, medications, toys, and more.
+            </Text>
+          </View>
+          <Icon color={colors.warmGray} name="chevron-right" size={20} />
         </View>
-        <Button title="Stay Details" />
+        <Button icon="sparkles" title="Reservation Details" />
       </Card>
 
       <Section title="Upcoming Requests">
         <StayCard stay={stays[1]} />
       </Section>
-      <Section title="Past Stays">
+      <Section title="Past Reservations">
         <StayCard stay={stays[2]} />
       </Section>
     </Screen>
@@ -110,11 +116,13 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   progressDot: {
+    alignItems: "center",
     backgroundColor: colors.porcelain,
     borderColor: colors.mutedGold,
     borderRadius: radius.pill,
     borderWidth: 1,
     height: 28,
+    justifyContent: "center",
     width: 28,
   },
   progressDotDone: {
@@ -124,6 +132,23 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   bringRow: {
-    gap: spacing.xs,
+    alignItems: "center",
+    borderTopColor: colors.creamBorder,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingTop: spacing.lg,
+  },
+  bringIcon: {
+    alignItems: "center",
+    backgroundColor: colors.blush,
+    borderRadius: radius.pill,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  bringCopy: {
+    flex: 1,
+    gap: spacing.xxs,
   },
 });

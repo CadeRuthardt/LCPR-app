@@ -1,53 +1,62 @@
-import { StyleSheet, View } from "react-native";
+import { router } from "expo-router";
+import * as React from "react";
+import { StyleSheet } from "react-native";
 
 import { PetCard } from "@/components/composites";
-import { Card, Screen, Section, Text } from "@/components/primitives";
+import { Button, Screen, Section } from "@/components/primitives";
 import { pets } from "@/data/mock-data";
-import { colors, radius, spacing } from "@/theme";
+import { colors, radius } from "@/theme";
 
 import { ScreenHeader } from "./screen-header";
 
 export function PetsScreen() {
+  const [selectedPetIds, setSelectedPetIds] = React.useState<Set<string>>(new Set());
+  const hasSelectedPets = selectedPetIds.size > 0;
+
+  function togglePet(petId: string) {
+    setSelectedPetIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(petId)) {
+        next.delete(petId);
+      } else {
+        next.add(petId);
+      }
+
+      return next;
+    });
+  }
+
   return (
     <Screen>
       <ScreenHeader title="My Pets" />
-      <View style={styles.addButton}>
-        <Text variant="heading" tone="inverse">
-          +
-        </Text>
-      </View>
       <Section>
         {pets.map((pet) => (
-          <PetCard key={pet.id} pet={pet} />
+          <PetCard
+            key={pet.id}
+            onPress={() => togglePet(pet.id)}
+            pet={pet}
+            selected={selectedPetIds.has(pet.id)}
+          />
         ))}
-        <Card style={styles.addPetCard}>
-          <Text variant="display" tone="muted">
-            +
-          </Text>
-          <Text variant="title">Add a Pet</Text>
-          <Text variant="caption" tone="secondary">
-            Add a new furry family member
-          </Text>
-        </Card>
+        {hasSelectedPets ? (
+          <Button
+            icon="calendar"
+            onPress={() => router.push("/request-stay")}
+            title="Request a Reservation"
+          />
+        ) : null}
+        <Button icon="plus" title="Add Another Pet" variant="ghost" style={styles.addPetButton} />
       </Section>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  addButton: {
-    alignItems: "center",
-    alignSelf: "flex-end",
-    backgroundColor: colors.mutedGold,
-    borderRadius: radius.pill,
-    height: 50,
-    justifyContent: "center",
-    marginTop: -64,
-    width: 50,
-  },
-  addPetCard: {
-    alignItems: "center",
-    borderStyle: "dashed",
-    gap: spacing.xs,
+  addPetButton: {
+    borderColor: colors.oliveBark,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    minHeight: 48,
   },
 });

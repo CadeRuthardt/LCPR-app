@@ -2,17 +2,21 @@ import { Pressable, StyleSheet, View } from "react-native";
 import type { PressableProps, StyleProp, ViewStyle } from "react-native";
 
 import { colors, radius, spacing } from "../../theme";
+import { Icon } from "./icon";
+import type { IconName } from "./icon";
 import { Text } from "./text";
 
 type ButtonVariant = "primary" | "secondary" | "ghost";
 
 type ButtonProps = PressableProps & {
+  icon?: IconName;
   title: string;
   variant?: ButtonVariant;
   style?: StyleProp<ViewStyle>;
 };
 
 export function Button({
+  icon,
   title,
   variant = "primary",
   disabled,
@@ -33,6 +37,13 @@ export function Button({
       ]}
     >
       <View style={styles.content}>
+        {icon ? (
+          <Icon
+            color={variant === "primary" ? colors.ivory : colors.blackCherry}
+            name={icon}
+            size={18}
+          />
+        ) : null}
         <Text
           variant="caption"
           tone={variant === "primary" ? "inverse" : "brand"}
@@ -71,6 +82,8 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
     justifyContent: "center",
   },
   label: {

@@ -1,6 +1,9 @@
 export { Badge } from "./badge";
 export { Button } from "./button";
 export { Card } from "./card";
+export { Icon } from "./icon";
 export { Screen } from "./screen";
 export { Section } from "./section";
 export { Text } from "./text";
+export { TextField } from "./text-field";
+export type { IconName } from "./icon";

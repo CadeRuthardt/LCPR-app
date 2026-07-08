@@ -1,7 +1,7 @@
 import { Image, StyleSheet, View } from "react-native";
 
-import { Badge, Card, Text } from "../primitives";
-import { spacing } from "../../theme";
+import { Badge, Card, Icon, Text } from "../primitives";
+import { colors, spacing } from "../../theme";
 import type { ExploreFeature } from "../../types/app";
 
 type FeatureCardProps = {
@@ -19,6 +19,7 @@ export function FeatureCard({ feature }: FeatureCardProps) {
           {feature.description}
         </Text>
       </View>
+      <Icon color={colors.warmGray} name="chevron-right" size={20} />
     </Card>
   );
 }

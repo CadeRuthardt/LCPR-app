@@ -1,63 +1,76 @@
-import { ImageBackground, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 
-import { Badge, Text } from "../primitives";
-import { colors, spacing } from "../../theme";
+import { Icon, Text } from "../primitives";
+import { colors, radius, spacing } from "../../theme";
 import type { Pet } from "../../types/app";
 
 type PetCardProps = {
+  onPress?: () => void;
   pet: Pet;
+  selected?: boolean;
 };
 
-export function PetCard({ pet }: PetCardProps) {
+export function PetCard({ onPress, pet, selected = false }: PetCardProps) {
   return (
-    <ImageBackground
-      source={{ uri: pet.imageUrl }}
-      imageStyle={styles.image}
-      resizeMode="cover"
-      style={styles.card}
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
-      <View style={styles.overlay}>
-        <View style={styles.topRow}>
-          <Badge label="Favorite" tone="accent" />
-          <Badge label="Active" tone="calm" />
-        </View>
-        <View style={styles.copy}>
-          <Text variant="heading" tone="inverse">
-            {pet.name}
-          </Text>
-          <Text variant="caption" tone="inverse">
-            {pet.breed}
-          </Text>
-          <Text variant="caption" tone="inverse">
-            {pet.careNote}
-          </Text>
-        </View>
+      <Image source={{ uri: pet.imageUrl }} style={styles.avatar} />
+      <View style={styles.copy}>
+        <Text variant="title">{pet.name}</Text>
+        <Text variant="caption" tone="secondary">
+          {pet.breed}
+        </Text>
+        <Text variant="caption" tone="secondary">
+          {pet.age} old | {pet.name === "Baelfire" ? "68 lbs" : pet.name === "Moe" ? "12 lbs" : "10 lbs"}
+        </Text>
       </View>
-    </ImageBackground>
+      <View style={[styles.selectCircle, selected && styles.selectCircleActive]}>
+        {selected ? <Icon color={colors.ivory} name="check" size={13} /> : null}
+      </View>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 24,
-    height: 260,
-    overflow: "hidden",
-  },
-  image: {
-    borderRadius: 24,
-  },
-  overlay: {
-    backgroundColor: colors.overlayDark,
-    flex: 1,
-    justifyContent: "space-between",
-    padding: spacing.lg,
-  },
-  topRow: {
-    alignItems: "flex-start",
+    alignItems: "center",
+    backgroundColor: colors.porcelain,
+    borderColor: colors.creamBorder,
+    borderRadius: radius.md,
+    borderWidth: 1,
     flexDirection: "row",
-    justifyContent: "space-between",
+    gap: spacing.md,
+    minHeight: 94,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  cardPressed: {
+    opacity: 0.82,
+  },
+  avatar: {
+    borderRadius: radius.pill,
+    height: 66,
+    width: 66,
   },
   copy: {
-    gap: spacing.xs,
+    flex: 1,
+    gap: spacing.xxs,
+  },
+  selectCircle: {
+    alignItems: "center",
+    borderColor: colors.warmGray,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  selectCircleActive: {
+    backgroundColor: colors.blackCherry,
+    borderColor: colors.blackCherry,
   },
 });

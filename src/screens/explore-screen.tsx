@@ -1,63 +1,88 @@
 import { ImageBackground, StyleSheet, View } from "react-native";
 
-import { FeatureCard } from "@/components/composites";
-import { Screen, Section, Text } from "@/components/primitives";
+import { Icon, Screen, Text } from "@/components/primitives";
 import { exploreFeatures, resortImages } from "@/data/mock-data";
 import { colors, radius, spacing } from "@/theme";
 
 import { ScreenHeader } from "./screen-header";
 
+const extraFeatures = [
+  {
+    id: "daycare",
+    title: "Daycare",
+    description: "Play. Socialize. Thrive.",
+    imageUrl: resortImages.playYard,
+  },
+  {
+    id: "team",
+    title: "Meet Our Team",
+    description: "The people who treat your pets like family.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=900&q=80",
+  },
+  {
+    id: "why",
+    title: "Why Le Chateau",
+    description: "Our story, values, and difference.",
+    imageUrl: resortImages.homeHero,
+  },
+] as const;
+
 export function ExploreScreen() {
+  const items = [...exploreFeatures, ...extraFeatures];
+
   return (
     <Screen>
-      <ScreenHeader title="Explore Le Chateau" />
-      <ImageBackground
-        source={{ uri: exploreFeatures[0].imageUrl }}
-        imageStyle={styles.exploreHeroImage}
-        resizeMode="cover"
-        style={styles.exploreHero}
-      >
-        <View style={styles.exploreHeroOverlay}>
-          <Text variant="title" tone="inverse">
-            Our Resort
-          </Text>
-          <Text variant="caption" tone="inverse">
-            Take a tour of our five-star resort.
-          </Text>
-        </View>
-      </ImageBackground>
-      <Section>
-        {exploreFeatures.slice(1).map((feature) => (
-          <FeatureCard key={feature.id} feature={feature} />
+      <ScreenHeader title="Explore the Resort" />
+      <View style={styles.featureList}>
+        {items.map((feature) => (
+          <ImageBackground
+            key={feature.id}
+            source={{ uri: feature.imageUrl }}
+            imageStyle={styles.featureImage}
+            resizeMode="cover"
+            style={styles.featureCard}
+          >
+            <View style={styles.featureOverlay}>
+              <View style={styles.featureCopy}>
+                <Text variant="title" tone="inverse">
+                  {feature.title}
+                </Text>
+                <Text variant="caption" tone="inverse">
+                  {feature.description}
+                </Text>
+              </View>
+              <Icon color={colors.goldenrod} name="chevron-right" size={18} />
+            </View>
+          </ImageBackground>
         ))}
-        <FeatureCard
-          feature={{
-            id: "photo-gallery",
-            title: "Photo Gallery",
-            description: "See our happy guests having the best time.",
-            label: "Gallery",
-            imageUrl: resortImages.stayHero,
-          }}
-        />
-      </Section>
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  exploreHero: {
-    borderRadius: radius.xl,
-    height: 190,
+  featureList: {
+    gap: spacing.md,
+  },
+  featureCard: {
+    borderRadius: radius.lg,
+    minHeight: 104,
     overflow: "hidden",
   },
-  exploreHeroImage: {
-    borderRadius: radius.xl,
+  featureImage: {
+    borderRadius: radius.lg,
   },
-  exploreHeroOverlay: {
-    backgroundColor: colors.overlayDark,
+  featureOverlay: {
+    alignItems: "center",
+    backgroundColor: colors.overlayDeep,
     flex: 1,
-    gap: spacing.xs,
-    justifyContent: "flex-end",
-    padding: spacing.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: spacing.md,
+  },
+  featureCopy: {
+    flex: 1,
+    gap: spacing.xxs,
   },
 });

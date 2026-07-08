@@ -17,6 +17,6 @@ export function ScreenHeader({ title }: ScreenHeaderProps) {
 
 const styles = StyleSheet.create({
   screenTitleRow: {
-    paddingTop: spacing.xl,
+    paddingTop: spacing.xs,
   },
 });

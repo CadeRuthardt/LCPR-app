@@ -1,10 +1,27 @@
 import { StyleSheet, View } from "react-native";
 
-import { Button, Screen, Section, Text } from "@/components/primitives";
+import { Button, Icon, Screen, Section, Text } from "@/components/primitives";
+import type { IconName } from "@/components/primitives";
 import { guest } from "@/data/mock-data";
 import { colors, radius, spacing } from "@/theme";
+import { useMockSession } from "@/utils/mock-session";
+
+const accountRows: Array<{ icon: IconName; label: string }> = [
+  { icon: "user", label: "Personal Information" },
+  { icon: "credit-card", label: "Payment Methods" },
+  { icon: "bell", label: "Notifications" },
+  { icon: "lock", label: "Privacy & Security" },
+];
+
+const supportRows: Array<{ icon: IconName; label: string }> = [
+  { icon: "help", label: "Help Center" },
+  { icon: "mail", label: "Contact Us" },
+  { icon: "info", label: "About Le Chateau" },
+];
 
 export function ProfileScreen() {
+  const { signOut } = useMockSession();
+
   return (
     <Screen contentStyle={styles.content}>
       <View style={styles.profileHero}>
@@ -19,31 +36,36 @@ export function ProfileScreen() {
         </Text>
       </View>
       <Section title="Account">
-        {["Personal Information", "Payment Methods", "Notifications", "Privacy & Security"].map(
-          (item) => (
-            <ProfileRow key={item} label={item} />
-          ),
-        )}
-      </Section>
-      <Section title="Support">
-        {["Help Center", "Contact Us", "About Le Chateau"].map((item) => (
-          <ProfileRow key={item} label={item} />
+        {accountRows.map((item) => (
+          <ProfileRow key={item.label} icon={item.icon} label={item.label} />
         ))}
       </Section>
-      <Button title="Log Out" variant="secondary" />
+      <Section title="Support">
+        {supportRows.map((item) => (
+          <ProfileRow key={item.label} icon={item.icon} label={item.label} />
+        ))}
+      </Section>
+      <Button
+        icon="log-out"
+        onPress={signOut}
+        title="Log Out"
+        variant="secondary"
+        style={styles.logoutButton}
+      />
     </Screen>
   );
 }
 
-function ProfileRow({ label }: { label: string }) {
+function ProfileRow({ icon, label }: { icon: IconName; label: string }) {
   return (
     <View style={styles.profileRow}>
-      <Text variant="body" tone="secondary">
-        {label}
-      </Text>
-      <Text variant="title" tone="muted">
-        {">"}
-      </Text>
+      <View style={styles.profileRowCopy}>
+        <Icon color={colors.graphite} name={icon} size={21} />
+        <Text variant="body" tone="secondary">
+          {label}
+        </Text>
+      </View>
+      <Icon color={colors.warmGray} name="chevron-right" size={20} />
     </View>
   );
 }
@@ -78,5 +100,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
+  },
+  profileRowCopy: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  logoutButton: {
+    marginHorizontal: spacing.xl,
   },
 });

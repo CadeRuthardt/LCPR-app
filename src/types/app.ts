@@ -6,16 +6,18 @@ export type Pet = {
   breed: string;
   age: string;
   careNote: string;
+  status: "Active" | "Wellness";
   vaccinationSummary: string;
   imageUrl: string;
 };
 
 export type Stay = {
   id: string;
+  nights: string;
   petName: string;
   dateRange: string;
   experience: string;
-  status: "Confirmed" | "Under Review" | "Preparing";
+  status: "Confirmed" | "Under Review" | "Preparing" | "Completed";
 };
 
 export type ExploreFeature = {
