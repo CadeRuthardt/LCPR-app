@@ -1,11 +1,21 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import * as React from "react";
 import { Image, StyleSheet, View } from "react-native";
 
-import { Badge, Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
+import {
+  BackChevronButton,
+  Badge,
+  Button,
+  Card,
+  Icon,
+  Screen,
+  Section,
+  Text,
+} from "@/components/primitives";
 import { getClientReservationDetailForApp } from "@/services/client-data";
 import { colors, radius, spacing } from "@/theme";
 import type { ClientReservationDetail, ReservationDetailPet } from "@/types/app";
+import { goBackOrReplace } from "@/utils/navigation";
 
 export function ReservationDetailScreen() {
   const params = useLocalSearchParams<{ reservationIds?: string }>();
@@ -57,12 +67,7 @@ export function ReservationDetailScreen() {
   return (
     <Screen contentStyle={styles.content}>
       <View style={styles.header}>
-        <Button
-          onPress={() => router.back()}
-          title="Back"
-          variant="ghost"
-          style={styles.backButton}
-        />
+        <BackChevronButton onPress={() => goBackOrReplace("/reservations")} style={styles.backButton} />
       </View>
 
       {isLoading ? (
@@ -80,7 +85,12 @@ export function ReservationDetailScreen() {
           <Text variant="body" tone="secondary">
             {errorMessage}
           </Text>
-          <Button title="Back to Reservations" variant="secondary" onPress={() => router.back()} />
+          <Button
+            icon="chevron-left"
+            title="Reservations"
+            variant="secondary"
+            onPress={() => goBackOrReplace("/reservations")}
+          />
         </Card>
       ) : null}
 
@@ -133,9 +143,11 @@ function ReservationDetailContent({ detail }: { detail: ClientReservationDetail 
         <Card style={styles.detailCard}>
           <FieldRow label="Arrival" value={detail.startDateTimeLabel ?? formatIsoDate(detail.startDate)} />
           <FieldRow label="Departure" value={detail.endDateTimeLabel ?? formatIsoDate(detail.endDate)} />
+          <FieldRow label="Created" value={detail.createdAt} />
+          <FieldRow label="Confirmed" value={detail.confirmedAt} />
           <FieldRow label="Nights" value={detail.nights ?? detail.unitsOfTime} />
-          <FieldRow label="Checked in" value={detail.checkInAt} />
-          <FieldRow label="Checked out" value={detail.checkOutAt} />
+          <FieldRow label="Actual check-in" value={detail.checkInAt} />
+          <FieldRow label="Actual check-out" value={detail.checkOutAt} />
         </Card>
       </Section>
 
@@ -200,7 +212,52 @@ function ReservationDetailContent({ detail }: { detail: ClientReservationDetail 
           </Card>
         </Section>
       ) : null}
+
+      {detail.rawReservations && detail.rawReservations.length > 0 ? (
+        <Section
+          title="Developer Data"
+          subtitle="Temporary raw Gingr fields for choosing what to keep."
+        >
+          {detail.rawReservations.map((reservation, index) => (
+            <RawReservationCard
+              key={`${detail.id}-raw-${index}`}
+              index={index}
+              reservation={reservation}
+            />
+          ))}
+        </Section>
+      ) : null}
     </>
+  );
+}
+
+function RawReservationCard({
+  index,
+  reservation,
+}: {
+  index: number;
+  reservation: Record<string, unknown>;
+}) {
+  const entries = Object.entries(reservation).sort(([a], [b]) => a.localeCompare(b));
+
+  return (
+    <Card style={styles.rawCard}>
+      <View style={styles.rawHeader}>
+        <Text variant="title">Raw Reservation {index + 1}</Text>
+        <Text variant="caption" tone="muted">
+          {entries.length} fields
+        </Text>
+      </View>
+
+      {entries.map(([key, value]) => (
+        <FieldRow
+          key={`${index}-${key}`}
+          label={key}
+          value={formatRawValue(value)}
+          emptyValue="Empty"
+        />
+      ))}
+    </Card>
   );
 }
 
@@ -314,6 +371,18 @@ function badgeToneForStatus(status: string) {
     return "calm";
   }
 
+  if (normalizedStatus === "checked out" || normalizedStatus === "checked-out") {
+    return "info";
+  }
+
+  if (normalizedStatus === "confirmed") {
+    return "success";
+  }
+
+  if (normalizedStatus === "unconfirmed") {
+    return "danger";
+  }
+
   if (normalizedStatus.includes("wait") || normalizedStatus.includes("pending")) {
     return "attention";
   }
@@ -337,6 +406,26 @@ function formatBooleanStatus(value: boolean | null, trueLabel: string, falseLabe
   }
 
   return value ? trueLabel : falseLabel;
+}
+
+function formatRawValue(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function formatIsoDate(value?: string | null) {
@@ -434,5 +523,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.md,
+  },
+  rawCard: {
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  rawHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
   },
 });

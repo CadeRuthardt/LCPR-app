@@ -1,8 +1,9 @@
 import { router, useFocusEffect } from "expo-router";
 import * as React from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, ImageBackground, Pressable, StyleSheet, View } from "react-native";
 
 import { Badge, Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
+import { resortImages } from "@/data/mock-data";
 import {
   cancelReservationRequest,
   getCurrentClientPetsForApp,
@@ -22,7 +23,7 @@ type ReservationsState = {
   upcomingReservations: ClientReservation[];
 };
 
-const reservationTabs = ["Requested", "Upcoming", "Past"] as const;
+const reservationTabs = ["Upcoming", "Past", "Requests"] as const;
 
 type ReservationTab = (typeof reservationTabs)[number];
 
@@ -38,7 +39,7 @@ export function ReservationsScreen() {
     requests: [],
     upcomingReservations: [],
   });
-  const [activeTab, setActiveTab] = React.useState<ReservationTab>("Requested");
+  const [activeTab, setActiveTab] = React.useState<ReservationTab>("Upcoming");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [hasLoadedOnce, setHasLoadedOnce] = React.useState(false);
   const [cancellingRequestId, setCancellingRequestId] = React.useState<string | null>(null);
@@ -62,10 +63,12 @@ export function ReservationsScreen() {
       ]);
 
       setData({
-        pastReservations: reservations.past,
+        pastReservations: reservations.past.filter((reservation) => !isCancelledReservation(reservation.status)),
         pets,
-        requests,
-        upcomingReservations: reservations.upcoming,
+        requests: requests.filter((request) => !isCancelledRequestStatus(request.status)),
+        upcomingReservations: reservations.upcoming.filter(
+          (reservation) => !isCancelledReservation(reservation.status),
+        ),
       });
     } catch (error) {
       setErrorMessage(
@@ -87,11 +90,11 @@ export function ReservationsScreen() {
 
       setData((current) => ({
         ...current,
-        requests: current.requests.map((request) =>
-          request.id === requestId ? cancelledRequest : request,
-        ),
+        requests: current.requests
+          .map((request) => (request.id === requestId ? cancelledRequest : request))
+          .filter((request) => !isCancelledRequestStatus(request.status)),
       }));
-      setActiveTab("Past");
+      setActiveTab("Requests");
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Unable to cancel this request right now.",
@@ -118,7 +121,7 @@ export function ReservationsScreen() {
     ["submitted", "under_review", "action_required"].includes(request.status),
   );
   const completedRequests = data.requests.filter((request) =>
-    ["confirmed", "cancelled"].includes(request.status),
+    request.status === "confirmed",
   );
 
   return (
@@ -172,38 +175,6 @@ export function ReservationsScreen() {
         })}
       </View>
 
-      {activeTab === "Requested" ? (
-        <Section
-          title="Submitted Requests"
-          subtitle="Requests sent from the app for reception to review."
-        >
-          {submittedRequests.length > 0 ? (
-            submittedRequests.map((request) => (
-              <RequestCard
-                key={request.id}
-                request={request}
-                pets={request.selected_pet_ids.map((petId) => ({
-                  imageUrl: data.pets.find((pet) => pet.id === petId)?.imageUrl,
-                  name: petNameById.get(petId) ?? "Pet",
-                }))}
-                isCancelling={cancellingRequestId === request.id}
-                onCancel={() => {
-                  void handleCancelRequest(request.id);
-                }}
-              />
-            ))
-          ) : (
-            <EmptyStateCard
-              icon="calendar"
-              title="No submitted requests"
-              body="When you request a reservation, it will appear here while our team reviews it."
-              actionTitle="Request a Reservation"
-              onAction={() => router.push("/request-reservation")}
-            />
-          )}
-        </Section>
-      ) : null}
-
       {activeTab === "Upcoming" ? (
         <Section title="Upcoming Reservations" subtitle="Confirmed reservations from Gingr.">
           {data.upcomingReservations.length > 0 ? (
@@ -226,41 +197,58 @@ export function ReservationsScreen() {
       ) : null}
 
       {activeTab === "Past" ? (
-        <>
-          <Section title="Past Reservations" subtitle="A look back at completed resort visits.">
-            {data.pastReservations.length > 0 ? (
-              data.pastReservations.map((reservation) => (
-                <GingrReservationCard
-                  key={reservation.id}
-                  petPreviews={getReservationPetPreviews(reservation.petNames, petByNormalizedName)}
-                  reservation={reservation}
-                  timing="past"
-                />
-              ))
-            ) : (
-              <EmptyStateCard
-                icon="sparkles"
-                title="No past reservations yet"
-                body="Completed reservations will collect here once Gingr returns history for your profile."
+        <Section title="Past Reservations" subtitle="A look back at completed resort visits.">
+          {data.pastReservations.length > 0 ? (
+            data.pastReservations.map((reservation) => (
+              <GingrReservationCard
+                key={reservation.id}
+                petPreviews={getReservationPetPreviews(reservation.petNames, petByNormalizedName)}
+                reservation={reservation}
+                timing="past"
               />
-            )}
-          </Section>
+            ))
+          ) : (
+            <EmptyStateCard
+              icon="sparkles"
+              title="No past reservations yet"
+              body="Completed reservations will collect here once Gingr returns history for your profile."
+            />
+          )}
+        </Section>
+      ) : null}
 
-          {completedRequests.length > 0 ? (
-            <Section title="Reviewed App Requests">
-              {completedRequests.map((request) => (
-                <RequestCard
-                  key={request.id}
-                  request={request}
-                  pets={request.selected_pet_ids.map((petId) => ({
-                    imageUrl: data.pets.find((pet) => pet.id === petId)?.imageUrl,
-                    name: petNameById.get(petId) ?? "Pet",
-                  }))}
-                />
-              ))}
-            </Section>
-          ) : null}
-        </>
+      {activeTab === "Requests" ? (
+        <Section
+          title="Reservation Requests"
+          subtitle="Requests sent from the app for reception to review."
+        >
+          {[...submittedRequests, ...completedRequests].length > 0 ? (
+            [...submittedRequests, ...completedRequests].map((request) => (
+              <RequestCard
+                key={request.id}
+                request={request}
+                pets={request.selected_pet_ids.map((petId) => ({
+                  imageUrl: data.pets.find((pet) => pet.id === petId)?.imageUrl,
+                  name: petNameById.get(petId) ?? "Pet",
+                }))}
+                isCancelling={cancellingRequestId === request.id}
+                onCancel={() => {
+                  void handleCancelRequest(request.id);
+                }}
+              />
+            ))
+          ) : (
+            <EmptyStateCard
+              icon="calendar"
+              title="No submitted requests"
+              body="When you request a reservation, it will appear here while our team reviews it."
+              actionTitle="Request a Reservation"
+              onAction={() =>
+                router.push({ pathname: "/request-reservation", params: { returnTo: "/reservations" } })
+              }
+            />
+          )}
+        </Section>
       ) : null}
     </Screen>
   );
@@ -277,45 +265,53 @@ function RequestCard({ isCancelling = false, onCancel, pets, request }: RequestC
   const canCancel = Boolean(onCancel) && isCancellableRequest(request.status);
 
   return (
-    <Card variant="elevated" style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleGroup}>
-          <Text variant="title">{formatDateRange(request.start_date, request.end_date)}</Text>
-          <PetSummary pets={pets} location={request.location ?? "Location pending"} />
-        </View>
-        <View style={styles.badgeStack}>
+    <Card variant="elevated" style={styles.reservationCard}>
+      <ReservationCardHero label={formatRequestHeroLabel(request.status)} location={request.location} />
+      <View style={styles.reservationPanel}>
+        <View style={styles.reservationHeader}>
+          <View style={styles.cardTitleGroup}>
+            <Text variant="title">{formatDateRange(request.start_date, request.end_date)}</Text>
+            <Text variant="body" tone="secondary">
+              {pets.map((pet) => pet.name).join(", ") || "Pet details pending"}
+            </Text>
+          </View>
           {request.reservation_type ? (
             <Badge
               label={formatReservationType(request.reservation_type)}
               tone={badgeToneForReservationType(request.reservation_type)}
             />
           ) : null}
-          <Badge label={formatStatus(request.status)} tone={badgeToneForRequest(request.status)} />
         </View>
-      </View>
 
-      <View style={styles.detailRow}>
-        <Icon color={colors.goldenrod} name="calendar" size={18} />
-        <Text variant="caption" tone="secondary" style={styles.detailText}>
-          {formatTimeRange(request.start_time, request.end_time)}
+        <Text variant="caption" tone="secondary">
+          {[request.experience, request.location, formatTimeRange(request.start_time, request.end_time)]
+            .filter(Boolean)
+            .join(" | ")}
         </Text>
-      </View>
 
-      <View style={styles.detailRow}>
-        <Icon color={colors.goldenrod} name="sparkles" size={18} />
-        <Text variant="caption" tone="secondary" style={styles.detailText}>
-          {request.experience}
-        </Text>
-      </View>
+        <View style={styles.panelDivider} />
 
-      {canCancel ? (
-        <Button
-          disabled={isCancelling}
-          onPress={onCancel}
-          title={isCancelling ? "Cancelling..." : "Cancel Request"}
-          variant="secondary"
-        />
-      ) : null}
+        <ReservationTimeline steps={buildRequestTimeline(request)} />
+
+        {canCancel ? (
+          <Button
+            disabled={isCancelling}
+            onPress={onCancel}
+            title={isCancelling ? "Cancelling..." : "Cancel Request"}
+            variant="secondary"
+          />
+        ) : null}
+
+        {!canCancel ? (
+          <Button
+            icon="chevron-right"
+            onPress={() =>
+              router.push({ pathname: "/request-reservation", params: { returnTo: "/reservations" } })
+            }
+            title="Request Another Reservation"
+          />
+        ) : null}
+      </View>
     </Card>
   );
 }
@@ -328,20 +324,18 @@ type GingrReservationCardProps = {
 
 function GingrReservationCard({ petPreviews, reservation, timing }: GingrReservationCardProps) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() =>
-        router.push({
-          pathname: "/reservation-detail",
-          params: { reservationIds: reservation.id },
-        })
-      }
-    >
-      <Card style={styles.card}>
-        <View style={styles.cardHeader}>
+    <Card style={styles.reservationCard}>
+      <ReservationCardHero
+        label={formatGingrReservationStatus(reservation.status)}
+        location={reservation.location}
+      />
+      <View style={styles.reservationPanel}>
+        <View style={styles.reservationHeader}>
           <View style={styles.cardTitleGroup}>
             <Text variant="title">{reservation.dateRange}</Text>
-            <PetSummary pets={petPreviews} />
+            <Text variant="body" tone="secondary">
+              {reservation.petNames.join(", ") || "Pet details pending"}
+            </Text>
           </View>
           <View style={styles.badgeStack}>
             {reservation.reservationType ? (
@@ -350,21 +344,100 @@ function GingrReservationCard({ petPreviews, reservation, timing }: GingrReserva
                 tone={badgeToneForReservationType(reservation.reservationType)}
               />
             ) : null}
-            <Badge
-              label={formatGingrReservationStatus(reservation.status)}
-              tone={badgeToneForGingrReservation(reservation.status)}
-            />
           </View>
         </View>
 
-        <View style={styles.detailRow}>
-          <Icon color={colors.goldenrod} name="sparkles" size={18} />
-          <Text variant="caption" tone="secondary" style={styles.detailText}>
-            {formatReservationDetail(reservation)}
-          </Text>
+        <Text variant="caption" tone="secondary" style={styles.detailText}>
+          {formatReservationDetail(reservation)}
+        </Text>
+
+        <View style={styles.panelDivider} />
+
+        <ReservationTimeline steps={buildReservationTimeline(reservation, timing)} />
+
+        <Button
+          icon="chevron-right"
+          onPress={() =>
+            router.push({
+              pathname: "/reservation-detail",
+              params: { reservationIds: reservation.id },
+            })
+          }
+          title="View Reservation Details"
+        />
+
+        {timing === "past" ? (
+          <Button
+            onPress={() =>
+              router.push({ pathname: "/request-reservation", params: { returnTo: "/reservations" } })
+            }
+            title="Request Another Reservation"
+            variant="secondary"
+          />
+        ) : null}
+      </View>
+    </Card>
+  );
+}
+
+function ReservationCardHero({ label, location }: { label: string; location?: string | null }) {
+  const imageUrl = getReservationHeroImage(location);
+
+  return (
+    <ImageBackground source={{ uri: imageUrl }} style={styles.cardHeroImage}>
+      <View style={styles.cardHeroOverlay} />
+      <View style={[styles.cardHeroLabel, statusHeroLabelStyle(label)]}>
+        <Text variant="label" tone="inverse" style={styles.cardHeroLabelText}>
+          {label}
+        </Text>
+      </View>
+    </ImageBackground>
+  );
+}
+
+function getReservationHeroImage(location?: string | null) {
+  const normalizedLocation = location?.trim().toLowerCase() ?? "";
+
+  if (normalizedLocation.includes("wichita falls")) {
+    return resortImages.wichitaFallsHero;
+  }
+
+  return resortImages.loginHero;
+}
+
+type TimelineStep = {
+  detail: string;
+  isComplete: boolean;
+  label: string;
+};
+
+function ReservationTimeline({ steps }: { steps: TimelineStep[] }) {
+  return (
+    <View style={styles.timeline}>
+      {steps.map((step, index) => (
+        <View key={step.label} style={styles.timelineRow}>
+          <View style={styles.timelineMarkerColumn}>
+            <View
+              style={[
+                styles.timelineMarker,
+                step.isComplete ? styles.timelineMarkerComplete : styles.timelineMarkerOpen,
+              ]}
+            >
+              {step.isComplete ? <Icon color={colors.white} name="check" size={12} /> : null}
+            </View>
+            {index < steps.length - 1 ? <View style={styles.timelineLine} /> : null}
+          </View>
+          <View style={styles.timelineCopy}>
+            <Text variant="caption" tone="primary">
+              {step.label}
+            </Text>
+            <Text variant="caption" tone="muted">
+              {step.detail}
+            </Text>
+          </View>
         </View>
-      </Card>
-    </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -445,6 +518,99 @@ function EmptyStateCard({ actionTitle, body, icon, onAction, title }: EmptyState
       ) : null}
     </Card>
   );
+}
+
+function buildRequestTimeline(request: ReservationRequest): TimelineStep[] {
+  const statusRank = requestStatusRank(request.status);
+
+  return [
+    {
+      detail: formatTimestampDate(request.created_at),
+      isComplete: statusRank >= 1,
+      label: "Request Submitted",
+    },
+    {
+      detail: statusRank >= 2 ? formatTimestampDate(request.updated_at) : "Our team will review availability.",
+      isComplete: statusRank >= 2,
+      label: request.status === "action_required" ? "Needs Attention" : "Under Review",
+    },
+    {
+      detail:
+        request.status === "cancelled"
+          ? "This request was cancelled."
+          : request.status === "confirmed"
+            ? "Your reservation is confirmed."
+            : "We'll be in touch soon.",
+      isComplete: statusRank >= 3,
+      label: request.status === "cancelled" ? "Cancelled" : "Confirmation Pending",
+    },
+    {
+      detail:
+        request.status === "confirmed"
+          ? "You're all set."
+          : "You'll get a notification when it's confirmed.",
+      isComplete: request.status === "confirmed",
+      label: "Confirmed",
+    },
+  ];
+}
+
+function buildReservationTimeline(
+  reservation: ClientReservation,
+  timing: "past" | "upcoming",
+): TimelineStep[] {
+  const normalizedStatus = reservation.status.trim().toLowerCase();
+  const isCancelled = normalizedStatus.includes("cancel");
+  const isCheckedOut = ["checked out", "checked-out", "complete", "completed"].includes(
+    normalizedStatus,
+  );
+  const isConfirmed = !isCancelled;
+
+  return [
+    {
+      detail: reservation.location ?? "Location details pending",
+      isComplete: isConfirmed || timing === "past",
+      label: isCancelled ? "Request Cancelled" : "Reservation Confirmed",
+    },
+    {
+      detail: reservation.startDate ? formatDisplayDate(reservation.startDate) : "Arrival date pending",
+      isComplete: timing === "past",
+      label: timing === "past" ? "Checked In" : "Arrival Scheduled",
+    },
+    {
+      detail: reservation.endDate ? formatDisplayDate(reservation.endDate) : "Departure date pending",
+      isComplete: isCheckedOut,
+      label: isCheckedOut ? "Checked Out" : "Checkout Pending",
+    },
+  ];
+}
+
+function requestStatusRank(status: ReservationRequest["status"]) {
+  if (status === "submitted") {
+    return 1;
+  }
+
+  if (status === "under_review" || status === "action_required") {
+    return 2;
+  }
+
+  if (status === "confirmed" || status === "cancelled") {
+    return 4;
+  }
+
+  return 0;
+}
+
+function formatRequestHeroLabel(status: ReservationRequest["status"]) {
+  if (status === "confirmed") {
+    return "Confirmed";
+  }
+
+  if (status === "cancelled") {
+    return "Cancelled";
+  }
+
+  return "Request";
 }
 
 function formatStatus(status: ReservationRequest["status"]) {
@@ -562,11 +728,33 @@ function isCancellableRequest(status: ReservationRequest["status"]) {
   return ["submitted", "under_review", "action_required"].includes(status);
 }
 
+function isCancelledRequestStatus(status: ReservationRequest["status"]) {
+  return status === "cancelled";
+}
+
+function isCancelledReservation(status: string) {
+  return ["cancelled", "canceled", "cancelled reservation", "canceled reservation"].includes(
+    normalizeStatus(status),
+  );
+}
+
 function badgeToneForGingrReservation(status: string) {
-  const normalizedStatus = status.trim().toLowerCase();
+  const normalizedStatus = normalizeStatus(status);
 
   if (normalizedStatus.includes("cancel")) {
     return "calm";
+  }
+
+  if (normalizedStatus === "checked out" || normalizedStatus === "checked-out") {
+    return "info";
+  }
+
+  if (normalizedStatus === "confirmed") {
+    return "success";
+  }
+
+  if (normalizedStatus === "unconfirmed") {
+    return "danger";
   }
 
   if (normalizedStatus.includes("wait") || normalizedStatus.includes("pending")) {
@@ -577,13 +765,35 @@ function badgeToneForGingrReservation(status: string) {
 }
 
 function formatGingrReservationStatus(status: string) {
-  const normalizedStatus = status.trim().toLowerCase();
+  const normalizedStatus = normalizeStatus(status);
 
   if (["complete", "completed", "checked out", "checked-out"].includes(normalizedStatus)) {
     return "Checked Out";
   }
 
   return status;
+}
+
+function normalizeStatus(status: string) {
+  return status.trim().toLowerCase();
+}
+
+function statusHeroLabelStyle(status: string) {
+  const normalizedStatus = normalizeStatus(status);
+
+  if (normalizedStatus === "confirmed") {
+    return styles.cardHeroLabelConfirmed;
+  }
+
+  if (normalizedStatus === "unconfirmed") {
+    return styles.cardHeroLabelUnconfirmed;
+  }
+
+  if (normalizedStatus === "checked out" || normalizedStatus === "checked-out") {
+    return styles.cardHeroLabelCheckedOut;
+  }
+
+  return null;
 }
 
 function getReservationPetPreviews(
@@ -644,13 +854,65 @@ function formatDisplayTime(value: string | null) {
   });
 }
 
+function formatTimestampDate(value: string | null) {
+  if (!value) {
+    return "Date pending";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 const styles = StyleSheet.create({
   card: {
     gap: spacing.md,
   },
+  reservationCard: {
+    gap: 0,
+    overflow: "hidden",
+    padding: 0,
+  },
   badgeStack: {
     alignItems: "flex-end",
     gap: spacing.xs,
+  },
+  cardHeroImage: {
+    height: 178,
+    justifyContent: "flex-start",
+    overflow: "hidden",
+  },
+  cardHeroLabel: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.goldenrod,
+    borderRadius: radius.pill,
+    margin: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  cardHeroLabelCheckedOut: {
+    backgroundColor: colors.statusBlue,
+  },
+  cardHeroLabelConfirmed: {
+    backgroundColor: colors.statusGreen,
+  },
+  cardHeroLabelText: {
+    textTransform: "uppercase",
+  },
+  cardHeroLabelUnconfirmed: {
+    backgroundColor: colors.statusRed,
+  },
+  cardHeroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlayDark,
   },
   cardHeader: {
     alignItems: "flex-start",
@@ -692,6 +954,10 @@ const styles = StyleSheet.create({
   noticeCard: {
     gap: spacing.md,
   },
+  panelDivider: {
+    backgroundColor: colors.creamBorder,
+    height: 1,
+  },
   petAvatar: {
     borderRadius: radius.pill,
     height: 30,
@@ -723,6 +989,20 @@ const styles = StyleSheet.create({
   petSummaryText: {
     flex: 1,
   },
+  reservationHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+  },
+  reservationPanel: {
+    backgroundColor: colors.porcelain,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    gap: spacing.lg,
+    marginTop: -28,
+    padding: spacing.xl,
+  },
   segment: {
     alignItems: "center",
     borderRadius: radius.pill,
@@ -741,5 +1021,45 @@ const styles = StyleSheet.create({
   },
   segmentPressed: {
     opacity: 0.78,
+  },
+  timeline: {
+    gap: 0,
+  },
+  timelineCopy: {
+    flex: 1,
+    gap: spacing.xxs,
+    paddingBottom: spacing.lg,
+  },
+  timelineLine: {
+    backgroundColor: colors.warmGray,
+    flex: 1,
+    opacity: 0.55,
+    width: 2,
+  },
+  timelineMarker: {
+    alignItems: "center",
+    borderRadius: radius.pill,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
+  timelineMarkerColumn: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    width: 34,
+  },
+  timelineMarkerComplete: {
+    backgroundColor: colors.blackCherry,
+  },
+  timelineMarkerOpen: {
+    backgroundColor: colors.porcelain,
+    borderColor: colors.warmGray,
+    borderWidth: 2,
+  },
+  timelineRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 74,
   },
 });

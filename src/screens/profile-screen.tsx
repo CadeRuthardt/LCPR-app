@@ -31,9 +31,11 @@ const gingrDebugActions: Array<{
   { action: "location-cities", label: "Test Location Cities" },
   { action: "reservation-types", label: "Test Reservation Types" },
   { action: "list-invoices", label: "Test List Invoices" },
+  { action: "report-card-files", label: "Test Report Cards" },
   { action: "current-owner", label: "Test Current Owner" },
   { action: "current-owner-profile", label: "Test Owner Profile" },
   { action: "current-pets", label: "Test Current Pets" },
+  { action: "current-reservations", label: "Test Current Reservations" },
   { action: "reservation-detail-test", label: "Test Reservation Detail" },
   { action: "current-client-snapshot", label: "Test Current Snapshot" },
 ];
@@ -49,6 +51,7 @@ export function ProfileScreen() {
   const [debugResponse, setDebugResponse] = useState<string | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+  const [rawOwner, setRawOwner] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -58,6 +61,7 @@ export function ProfileScreen() {
 
       if (isMounted) {
         setProfileImageUrl(ownerProfile?.imageUrl ?? null);
+        setRawOwner(ownerProfile?.rawOwner ?? null);
       }
     }
 
@@ -119,6 +123,30 @@ export function ProfileScreen() {
           ))}
         </Section>
       </View>
+
+      {rawOwner ? (
+        <View style={styles.sectionWrap}>
+          <Section
+            title="Developer Data"
+            subtitle="Temporary raw Gingr owner fields for choosing what to keep."
+            headerStyle={styles.sectionHeader}
+          >
+            <View style={styles.rawPanel}>
+              <View style={styles.rawHeader}>
+                <Text variant="title">Raw Owner</Text>
+                <Text variant="caption" tone="muted">
+                  {Object.keys(rawOwner).length} fields
+                </Text>
+              </View>
+              {Object.entries(rawOwner)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, value]) => (
+                  <RawRow key={key} label={key} value={formatRawValue(value)} />
+                ))}
+            </View>
+          </Section>
+        </View>
+      ) : null}
 
       <View style={styles.debugPanel}>
         <View style={styles.debugHeader}>
@@ -212,6 +240,39 @@ function formatDebugError(error: unknown) {
   return "Gingr discovery request failed.";
 }
 
+function formatRawValue(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function RawRow({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <View style={styles.rawRow}>
+      <Text variant="caption" tone="muted" style={styles.rawLabel}>
+        {label}
+      </Text>
+      <Text selectable variant="caption" tone={value ? "secondary" : "muted"} style={styles.rawValue}>
+        {value || "Empty"}
+      </Text>
+    </View>
+  );
+}
+
 function ProfileRow({ icon, label }: { icon: IconName; label: string }) {
   return (
     <View style={styles.profileRow}>
@@ -275,6 +336,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.md,
+  },
+  rawHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+  },
+  rawLabel: {
+    flex: 0.9,
+  },
+  rawPanel: {
+    backgroundColor: colors.porcelain,
+    borderColor: colors.creamBorder,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    marginHorizontal: spacing.xl,
+    padding: spacing.lg,
+  },
+  rawRow: {
+    alignItems: "flex-start",
+    borderBottomColor: colors.creamBorder,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  rawValue: {
+    flex: 1.35,
   },
   logoutButton: {
     marginHorizontal: spacing.xl,

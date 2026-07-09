@@ -1,4 +1,4 @@
-import { requireSupabase } from "@/lib/supabase";
+import { requireSupabase, supabaseConfig } from "@/lib/supabase";
 
 export type GingrDiscoveryAction =
   | "locations"
@@ -8,6 +8,7 @@ export type GingrDiscoveryAction =
   | "services-by-type"
   | "request-catalog"
   | "list-invoices"
+  | "report-card-files"
   | "current-owner"
   | "current-owner-profile"
   | "current-pets"
@@ -43,12 +44,14 @@ export type GingrPet = {
   gender: string | null;
   id: string;
   imageUrl: string | null;
+  immunizations: GingrPetImmunization[];
   medicationNotes: string | null;
   medicationSchedules: GingrMedicationSchedule[];
   medicines: string | null;
   name: string;
   nextImmunizationExpiration: string | null;
   notes: string | null;
+  rawData?: Record<string, unknown>;
   source: "gingr";
   species: string;
   status: "Active" | "Checked In";
@@ -57,6 +60,15 @@ export type GingrPet = {
   vetPhone: string | null;
   vip: boolean;
   weight: string;
+};
+
+export type GingrPetImmunization = {
+  administeredDate: string | null;
+  expiresDate: string | null;
+  id: string | null;
+  name: string;
+  rawData: unknown;
+  status: string | null;
 };
 
 export type GingrFeedingSchedule = {
@@ -79,6 +91,7 @@ export type GingrMedicationSchedule = {
 export type CurrentGingrPetsResponse = {
   ownerId: string | null;
   pets: GingrPet[];
+  rawPets?: Array<Record<string, unknown>>;
 };
 
 export type CurrentGingrOwnerProfileResponse = {
@@ -87,6 +100,7 @@ export type CurrentGingrOwnerProfileResponse = {
   imageSourceKey: string | null;
   imageUrl: string | null;
   ownerId: string | null;
+  rawOwner?: Record<string, unknown>;
 };
 
 export type GingrLocation = {
@@ -153,6 +167,8 @@ export type GingrReservationDetail = GingrReservation & {
   cancelledBy: string | null;
   checkInAt: string | null;
   checkOutAt: string | null;
+  confirmedAt: string | null;
+  createdAt: string | null;
   createdBy: string | null;
   endDateTimeLabel: string | null;
   feedingAmount: string | null;
@@ -172,6 +188,7 @@ export type GingrReservationDetail = GingrReservation & {
 export type GingrReservationDetailResponse = {
   estimate: GingrReservationEstimate | null;
   ownerId: string | null;
+  rawReservations?: Array<Record<string, unknown>>;
   reservations: GingrReservationDetail[];
 };
 
@@ -193,18 +210,62 @@ export type GingrReservationRequestCatalog = {
   species: GingrCatalogItem[];
 };
 
-export async function runGingrDiscovery<T = unknown>(request: GingrDiscoveryRequest) {
-  const { data, error } = await requireSupabase().functions.invoke<
-    GingrDiscoveryResponse<T>
-  >("gingr-discovery", {
-    body: request,
-  });
+const gingrDiscoveryTimeoutMs = 35000;
 
-  if (error) {
-    throw error;
+export async function runGingrDiscovery<T = unknown>(request: GingrDiscoveryRequest) {
+  const supabase = requireSupabase();
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+  if (sessionError) {
+    throw sessionError;
   }
 
-  return data;
+  const accessToken = sessionData.session?.access_token;
+
+  if (!accessToken) {
+    throw new Error("Please sign in again before checking Gingr.");
+  }
+
+  if (!supabaseConfig.url || !supabaseConfig.publishableKey) {
+    throw new Error("Supabase is not configured for Gingr discovery.");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), gingrDiscoveryTimeoutMs);
+
+  try {
+    const response = await fetch(`${supabaseConfig.url}/functions/v1/gingr-discovery`, {
+      body: JSON.stringify(request),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        apikey: supabaseConfig.publishableKey,
+      },
+      method: "POST",
+      signal: controller.signal,
+    });
+    const responseText = await response.text();
+    const responseJson = parseResponseJson(responseText);
+
+    if (!response.ok) {
+      const errorMessage =
+        readErrorMessage(responseJson) || `Gingr discovery failed with HTTP ${response.status}.`;
+
+      throw new Error(errorMessage);
+    }
+
+    return responseJson as GingrDiscoveryResponse<T>;
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(
+        `Gingr discovery did not respond within ${Math.round(gingrDiscoveryTimeoutMs / 1000)} seconds.`,
+      );
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function getCurrentGingrPets() {
@@ -212,7 +273,21 @@ export async function getCurrentGingrPets() {
     action: "current-pets",
   });
 
-  return response?.data?.pets ?? [];
+  const pets = response?.data?.pets ?? [];
+  const rawPetById = new Map(
+    (response?.data?.rawPets ?? [])
+      .map((rawPet) => {
+        const id = readRawString(rawPet, ["a_id", "id"]);
+
+        return id ? ([id, rawPet] as const) : null;
+      })
+      .filter((entry): entry is readonly [string, Record<string, unknown>] => Boolean(entry)),
+  );
+
+  return pets.map((pet) => ({
+    ...pet,
+    rawData: rawPetById.get(pet.id),
+  }));
 }
 
 export async function getCurrentGingrOwnerProfile() {
@@ -254,4 +329,55 @@ export async function getGingrReservationRequestCatalog() {
   });
 
   return response?.data ?? null;
+}
+
+function readRawString(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+
+    if (typeof value === "number") {
+      return String(value);
+    }
+  }
+
+  return null;
+}
+
+function parseResponseJson(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function readErrorMessage(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return typeof value === "string" ? value : null;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return typeof record.error === "string"
+    ? record.error
+    : typeof record.message === "string"
+      ? record.message
+      : null;
+}
+
+function isAbortError(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      (error as { name?: unknown }).name === "AbortError",
+  );
 }

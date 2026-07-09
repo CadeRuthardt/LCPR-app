@@ -120,6 +120,7 @@ export async function getClientReservationDetailForApp(
     estimate: detail.estimate,
     id: detail.reservations.map((reservation) => reservation.id).join(","),
     petDetails: detail.reservations.flatMap((reservation) => reservation.petDetails),
+    rawReservations: detail.rawReservations,
   };
 }
 

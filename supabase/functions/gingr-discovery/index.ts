@@ -6,6 +6,7 @@ type DiscoveryAction =
   | "services-by-type"
   | "request-catalog"
   | "list-invoices"
+  | "report-card-files"
   | "current-owner"
   | "current-owner-profile"
   | "current-pets"
@@ -27,6 +28,12 @@ type AuthUser = {
   email?: string;
 };
 
+type GingrClient = {
+  apiKey: string;
+  city: string;
+  code: string;
+};
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -34,6 +41,39 @@ const corsHeaders = {
 
 const sensitiveKeyPattern =
   /(api[-_]?key|authorization|bearer|card|cc_|credit|password|secret|ssn|token)/i;
+const gingrRequestTimeoutMs = 8000;
+
+function getConfiguredGingrClients(): GingrClient[] {
+  const clients = [
+    {
+      apiKey: Deno.env.get("GINGR_API_KEY_AMA"),
+      city: "Amarillo",
+      code: "AMA",
+    },
+    {
+      apiKey: Deno.env.get("GINGR_API_KEY_WF"),
+      city: "Wichita Falls",
+      code: "WF",
+    },
+    {
+      apiKey: Deno.env.get("GINGR_API_KEY_NB"),
+      city: "New Braunfels",
+      code: "NB",
+    },
+    {
+      apiKey: Deno.env.get("GINGR_API_KEY"),
+      city: "Legacy",
+      code: "LEGACY",
+    },
+  ];
+
+  return clients
+    .filter((client): client is GingrClient => Boolean(client.apiKey))
+    .map((client) => ({
+      ...client,
+      apiKey: client.apiKey.trim(),
+    }));
+}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
@@ -45,13 +85,14 @@ Deno.serve(async (request) => {
   }
 
   const gingrBaseUrl = normalizeBaseUrl(Deno.env.get("GINGR_BASE_URL"));
-  const gingrApiKey = Deno.env.get("GINGR_API_KEY");
+  const gingrClients = getConfiguredGingrClients();
+  const primaryGingrClient = gingrClients[0];
 
-  if (!gingrBaseUrl || !gingrApiKey) {
+  if (!gingrBaseUrl || !primaryGingrClient) {
     return jsonResponse(
       {
         error:
-          "Gingr discovery is not configured. Set GINGR_BASE_URL and GINGR_API_KEY as Supabase Edge Function secrets.",
+          "Gingr discovery is not configured. Set GINGR_BASE_URL and at least one location API key secret, such as GINGR_API_KEY_AMA or GINGR_API_KEY_WF.",
       },
       500,
     );
@@ -70,28 +111,28 @@ Deno.serve(async (request) => {
     if (action === "locations") {
       return jsonResponse({
         action,
-        data: await gingrGet(gingrBaseUrl, gingrApiKey, "/api/v1/get_locations"),
+        data: await gingrGet(gingrBaseUrl, primaryGingrClient.apiKey, "/api/v1/get_locations"),
       });
     }
 
     if (action === "location-cities") {
       return jsonResponse({
         action,
-        data: await buildLocationCities(gingrBaseUrl, gingrApiKey),
+        data: await buildLocationCities(gingrBaseUrl, primaryGingrClient.apiKey),
       });
     }
 
     if (action === "reservation-types") {
       return jsonResponse({
         action,
-        data: await gingrGet(gingrBaseUrl, gingrApiKey, "/api/v1/reservation_types"),
+        data: await gingrGet(gingrBaseUrl, primaryGingrClient.apiKey, "/api/v1/reservation_types"),
       });
     }
 
     if (action === "species") {
       return jsonResponse({
         action,
-        data: await gingrGet(gingrBaseUrl, gingrApiKey, "/api/v1/get_species"),
+        data: await gingrGet(gingrBaseUrl, primaryGingrClient.apiKey, "/api/v1/get_species"),
       });
     }
 
@@ -102,7 +143,7 @@ Deno.serve(async (request) => {
 
       return jsonResponse({
         action,
-        data: await gingrGet(gingrBaseUrl, gingrApiKey, "/api/v1/get_services_by_type", {
+        data: await gingrGet(gingrBaseUrl, primaryGingrClient.apiKey, "/api/v1/get_services_by_type", {
           type_id: String(body.reservationTypeId),
           ...(body.locationId ? { location_id: String(body.locationId) } : {}),
         }),
@@ -112,70 +153,77 @@ Deno.serve(async (request) => {
     if (action === "request-catalog") {
       return jsonResponse({
         action,
-        data: await buildRequestCatalog(gingrBaseUrl, gingrApiKey),
+        data: await buildRequestCatalog(gingrBaseUrl, primaryGingrClient.apiKey),
       });
     }
 
     if (action === "list-invoices") {
       return jsonResponse({
         action,
-        data: await buildCurrentOwnerInvoices(gingrBaseUrl, gingrApiKey, authResult.user),
+        data: await buildCurrentOwnerInvoices(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user),
+      });
+    }
+
+    if (action === "report-card-files") {
+      return jsonResponse({
+        action,
+        data: await buildReportCardFileDiscovery(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user),
       });
     }
 
     if (action === "current-owner") {
       return jsonResponse({
         action,
-        data: await findOwnerByEmail(gingrBaseUrl, gingrApiKey, authResult.user),
+        data: await findOwnerByEmail(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user),
       });
     }
 
     if (action === "current-owner-profile") {
       return jsonResponse({
         action,
-        data: await buildCurrentOwnerProfile(gingrBaseUrl, gingrApiKey, authResult.user),
+        data: await buildCurrentOwnerProfile(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user),
       });
     }
 
     if (action === "current-pets") {
       return jsonResponse({
         action,
-        data: await buildCurrentPets(gingrBaseUrl, gingrApiKey, authResult.user),
+        data: await buildCurrentPets(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user),
       });
     }
 
     if (action === "current-reservations") {
       return jsonResponse({
         action,
-        data: await buildCurrentReservations(gingrBaseUrl, gingrApiKey, authResult.user),
+        data: await buildCurrentReservationsForClients(gingrBaseUrl, gingrClients, authResult.user),
       });
     }
 
     if (action === "reservation-detail") {
       return jsonResponse({
         action,
-        data: await buildReservationDetail(gingrBaseUrl, gingrApiKey, authResult.user, body),
+        data: await buildReservationDetail(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user, body),
       });
     }
 
     if (action === "reservation-detail-test") {
       return jsonResponse({
         action,
-        data: await buildReservationDetailTest(gingrBaseUrl, gingrApiKey, authResult.user),
+        data: await buildReservationDetailTest(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user),
       });
     }
 
     if (action === "current-client-snapshot") {
       return jsonResponse({
         action,
-        data: await buildCurrentClientSnapshot(gingrBaseUrl, gingrApiKey, authResult.user),
+        data: await buildCurrentClientSnapshot(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user),
       });
     }
 
     return jsonResponse(
       {
         error:
-          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, current-owner, current-owner-profile, current-pets, current-reservations, reservation-detail, reservation-detail-test, or current-client-snapshot.",
+          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, current-owner, current-owner-profile, current-pets, current-reservations, reservation-detail, reservation-detail-test, or current-client-snapshot.",
       },
       400,
     );
@@ -419,48 +467,803 @@ async function buildCurrentPets(baseUrl: string, apiKey: string, user: AuthUser)
   const owner = await findOwnerByEmail(baseUrl, apiKey, user);
   const ownerData = unwrapGingrData<Record<string, unknown>>(owner);
   const animals = Array.isArray(ownerData?.animals) ? ownerData.animals : [];
+  const species = await gingrGet(baseUrl, apiKey, "/api/v1/get_species")
+    .then((response) =>
+      unwrapGingrArray(response)
+        .map(normalizeCatalogItem)
+        .filter((item): item is NormalizedCatalogItem => Boolean(item)),
+    )
+    .catch(() => []);
+  const speciesIdByName = new Map(species.map((speciesItem) => [speciesItem.name.toLowerCase(), speciesItem.id]));
+  const speciesIds = Array.from(
+    new Set(
+      animals
+        .map((animal) =>
+          animal && typeof animal === "object" && !Array.isArray(animal)
+            ? readAnimalSpeciesId(animal as Record<string, unknown>, speciesIdByName)
+            : null,
+        )
+        .filter((speciesId): speciesId is string => Boolean(speciesId)),
+    ),
+  );
+  const immunizationTypeById = await buildImmunizationTypeMap(baseUrl, apiKey, speciesIds);
+  const pets = await Promise.all(
+    animals.map(async (animal) => {
+      if (!animal || typeof animal !== "object" || Array.isArray(animal)) {
+        return null;
+      }
+
+      const record = animal as Record<string, unknown>;
+      const animalId = readString(record, "a_id") ?? readString(record, "id");
+      const immunizations = animalId
+        ? await fetchAnimalImmunizations(baseUrl, apiKey, animalId, immunizationTypeById)
+        : [];
+
+      return normalizeAnimal(record, immunizations);
+    }),
+  );
 
   return {
     ownerId: readString(ownerData, "id"),
-    pets: animals.map(normalizeAnimal).filter(Boolean),
+    pets: pets.filter(Boolean),
+    rawPets: animals.map(redact),
   };
 }
 
-async function buildCurrentReservations(baseUrl: string, apiKey: string, user: AuthUser) {
-  const owner = await findOwnerByEmail(baseUrl, apiKey, user);
-  const ownerId = extractFirstId(owner);
+async function buildImmunizationTypeMap(baseUrl: string, apiKey: string, speciesIds: string[]) {
+  const immunizationTypeById = new Map<string, string>();
+
+  for (const speciesId of speciesIds) {
+    const response = await gingrGet(baseUrl, apiKey, "/api/v1/get_immunization_types", {
+      species_id: speciesId,
+    }).catch(() => null);
+
+    for (const immunizationType of unwrapGingrArray(response)) {
+      if (!immunizationType || typeof immunizationType !== "object" || Array.isArray(immunizationType)) {
+        continue;
+      }
+
+      const record = immunizationType as Record<string, unknown>;
+      const nestedType =
+        readRecord(record, "immunization_type") ??
+        readRecord(record, "required_immunization") ??
+        readRecord(record, "type");
+      const id =
+        readAnyString(record, IMMUNIZATION_TYPE_ID_KEYS) ??
+        (nestedType ? readAnyString(nestedType, IMMUNIZATION_TYPE_ID_KEYS) : null);
+      const name =
+        readAnyString(record, IMMUNIZATION_NAME_KEYS) ??
+        (nestedType ? readAnyString(nestedType, IMMUNIZATION_NAME_KEYS) : null);
+
+      if (id && name) {
+        immunizationTypeById.set(id, name);
+      }
+    }
+  }
+
+  return immunizationTypeById;
+}
+
+function readAnimalSpeciesId(
+  animal: Record<string, unknown>,
+  speciesIdByName: Map<string, string>,
+) {
+  const directSpeciesId = readAnyString(animal, ["species_id", "s_id"]);
+
+  if (directSpeciesId) {
+    return directSpeciesId;
+  }
+
+  const speciesName = readAnyString(animal, ["species_name", "species", "species_label"]);
+
+  return speciesName ? speciesIdByName.get(speciesName.toLowerCase()) ?? null : null;
+}
+
+async function fetchAnimalImmunizations(
+  baseUrl: string,
+  apiKey: string,
+  animalId: string,
+  immunizationTypeById: Map<string, string>,
+) {
+  const response = await gingrGet(baseUrl, apiKey, "/api/v1/get_animal_immunizations", {
+    animal_id: animalId,
+  }).catch(() => null);
+
+  return unwrapGingrArray(response)
+    .map((immunization) => normalizeAnimalImmunization(immunization, immunizationTypeById))
+    .filter((immunization): immunization is NormalizedAnimalImmunization => Boolean(immunization));
+}
+
+async function buildCurrentReservations(
+  baseUrl: string,
+  apiKey: string,
+  user: AuthUser,
+  options: {
+    includeCompanyScan?: boolean;
+    includeOwnerSearch?: boolean;
+    includeLocationLookup?: boolean;
+  } = {},
+) {
+  const ownerRecords = options.includeOwnerSearch
+    ? await findOwnerRecordsByEmail(baseUrl, apiKey, user)
+    : [unwrapGingrData<Record<string, unknown>>(await findOwnerByEmail(baseUrl, apiKey, user))].filter(
+        (ownerRecord): ownerRecord is Record<string, unknown> => Boolean(ownerRecord),
+      );
+  const ownerIds = Array.from(
+    new Set(
+      ownerRecords
+        .map((ownerRecord) => extractFirstId(ownerRecord))
+        .filter((ownerId): ownerId is string | number => Boolean(ownerId))
+        .map(String),
+    ),
+  );
+  const ownerId = ownerIds[0] ?? null;
 
   if (!ownerId) {
     return {
       ownerId: null,
+      ownerIds: [],
       reservations: [],
       note: "No owner id was found in the Gingr owner response.",
     };
   }
 
-  const response = await gingrPost(baseUrl, apiKey, "/api/v1/reservations_by_owner", {
-    id: String(ownerId),
-  });
-  const locations = await gingrGet(baseUrl, apiKey, "/api/v1/get_locations")
-    .then((locationsResponse) =>
-      unwrapGingrArray(locationsResponse)
-        .map(normalizeLocation)
-        .filter((location): location is NormalizedLocation => Boolean(location)),
-    )
-    .catch(() => []);
+  const locations = options.includeLocationLookup
+    ? await gingrGet(baseUrl, apiKey, "/api/v1/get_locations")
+        .then((locationsResponse) =>
+          unwrapGingrArray(locationsResponse)
+            .map(normalizeLocation)
+            .filter((location): location is NormalizedLocation => Boolean(location)),
+        )
+        .catch(() => [])
+    : [];
   const locationById = new Map(
     locations
       .filter((location) => location.id)
       .map((location) => [String(location.id), location.city]),
   );
-  const reservations = unwrapGingrArray(response)
+  const reservationById = new Map<string, unknown>();
+  const lookups: Array<{
+    error?: string;
+    label: string;
+    returned: number;
+    sampleLocations?: string[];
+    sampleReservationIds?: string[];
+    totalReturned?: number;
+  }> = [];
+  for (const discoveredOwnerId of ownerIds) {
+    const ownerResult = await fetchReservationsByOwner(baseUrl, apiKey, discoveredOwnerId);
+
+    for (const lookup of ownerResult.lookups) {
+      lookups.push(lookup);
+    }
+
+    for (const reservation of ownerResult.reservations) {
+      addReservationToMap(reservationById, reservation);
+    }
+  }
+
+  if (options.includeCompanyScan) {
+    const ownerEmail = user.email;
+    const ownerPets = uniqueOwnerPetReferences(ownerRecords.flatMap(readOwnerPetReferences));
+    const companyResult = await fetchCompanyReservationsForOwner(
+      baseUrl,
+      apiKey,
+      ownerIds,
+      ownerEmail,
+      ownerPets,
+      locations,
+    );
+
+    for (const lookup of companyResult.lookups) {
+      lookups.push(lookup);
+    }
+
+    for (const reservation of companyResult.reservations) {
+      addReservationToMap(reservationById, reservation);
+    }
+  }
+
+  const rawReservations = Array.from(reservationById.values());
+  const reservations = rawReservations
     .map((reservation) => normalizeReservation(reservation, locationById))
     .filter((reservation): reservation is NormalizedReservation => Boolean(reservation));
 
   return {
     ownerId: String(ownerId),
+    ownerIds,
     reservations,
+    debug: {
+      lookups,
+      includeCompanyScan: Boolean(options.includeCompanyScan),
+      includeLocationLookup: Boolean(options.includeLocationLookup),
+      includeOwnerSearch: Boolean(options.includeOwnerSearch),
+      locationCounts: countReservationsByLocation(reservations),
+      ownerIds,
+      ownerPetReferences: uniqueOwnerPetReferences(ownerRecords.flatMap(readOwnerPetReferences)),
+      rawReservationCount: rawReservations.length,
+      reservationCount: reservations.length,
+    },
   };
+}
+
+async function buildCurrentReservationsForClients(
+  baseUrl: string,
+  clients: GingrClient[],
+  user: AuthUser,
+) {
+  const reservationByKey = new Map<string, NormalizedReservation>();
+  const ownerIds = new Set<string>();
+  const clientDebug: Array<{
+    city: string;
+    code: string;
+    error?: string;
+    locationCounts?: Record<string, number>;
+    ownerIds?: string[];
+    reservationCount: number;
+  }> = [];
+
+  const clientResults = await Promise.all(
+    clients.map(async (client) => {
+      const startedAt = Date.now();
+
+      try {
+        const result = await buildCurrentReservations(baseUrl, client.apiKey, user, {
+          includeCompanyScan: false,
+          includeLocationLookup: false,
+          includeOwnerSearch: false,
+        });
+
+        return {
+          client,
+          durationMs: Date.now() - startedAt,
+          result,
+        };
+      } catch (error) {
+        return {
+          client,
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : "Gingr lookup failed.",
+        };
+      }
+    }),
+  );
+
+  for (const clientResult of clientResults) {
+    if ("error" in clientResult) {
+      clientDebug.push({
+        city: clientResult.client.city,
+        code: clientResult.client.code,
+        durationMs: clientResult.durationMs,
+        error: clientResult.error,
+        reservationCount: 0,
+      });
+      continue;
+    }
+
+    const { client, result } = clientResult;
+
+    for (const ownerId of result.ownerIds ?? []) {
+      ownerIds.add(ownerId);
+    }
+
+    for (const reservation of result.reservations) {
+      const reservationWithLocation = {
+        ...reservation,
+        location: normalizeKnownLocation(reservation.location, client.city),
+      };
+      const key = buildNormalizedReservationMergeKey(reservationWithLocation, client.code);
+
+      reservationByKey.set(key, reservationWithLocation);
+    }
+
+    clientDebug.push({
+      city: client.city,
+      code: client.code,
+      durationMs: clientResult.durationMs,
+      locationCounts: result.debug?.locationCounts,
+      ownerIds: result.ownerIds ?? [],
+      reservationCount: result.reservations.length,
+    });
+  }
+
+  const reservations = Array.from(reservationByKey.values());
+
+  return {
+    ownerId: Array.from(ownerIds)[0] ?? null,
+    ownerIds: Array.from(ownerIds),
+    reservations,
+    debug: {
+      clients: clientDebug,
+      configuredClients: clients.map((client) => ({ city: client.city, code: client.code })),
+      locationCounts: countReservationsByLocation(reservations),
+      reservationCount: reservations.length,
+    },
+  };
+}
+
+function normalizeKnownLocation(location: string | null, fallbackCity: string) {
+  if (!location || /^legacy$/i.test(location)) {
+    return fallbackCity === "Legacy" ? location : fallbackCity;
+  }
+
+  return normalizeSpecificLocationName(location) ?? location;
+}
+
+function buildNormalizedReservationMergeKey(reservation: NormalizedReservation, clientCode: string) {
+  return [
+    reservation.id,
+    reservation.location ?? clientCode,
+    reservation.startDate ?? "",
+    reservation.endDate ?? "",
+    reservation.reservationType ?? "",
+  ].join("|");
+}
+
+async function fetchReservationsByOwner(
+  baseUrl: string,
+  apiKey: string,
+  ownerId: string,
+) {
+  const today = new Date();
+  const pastStart = new Date(today);
+  pastStart.setFullYear(today.getFullYear() - 3);
+  const futureEnd = new Date(today);
+  futureEnd.setFullYear(today.getFullYear() + 2);
+
+  const lookupBodies = [
+    {
+      label: "default",
+      body: { id: ownerId },
+    },
+    {
+      label: "future",
+      body: {
+        id: ownerId,
+        restrict_to: "future",
+        "params[limit]": "250",
+      },
+    },
+    {
+      label: "past",
+      body: {
+        id: ownerId,
+        restrict_to: "past",
+        "params[limit]": "250",
+      },
+    },
+    {
+      label: "dateWindow",
+      body: {
+        id: ownerId,
+        "params[fromDate]": formatIsoDateForGingr(pastStart),
+        "params[toDate]": formatIsoDateForGingr(futureEnd),
+        "params[limit]": "250",
+      },
+    },
+  ];
+  const reservationById = new Map<string, unknown>();
+  const lookups: Array<{
+    error?: string;
+    label: string;
+    returned: number;
+  }> = [];
+
+  const lookupResults = await Promise.all(
+    lookupBodies.map(async (lookup) => {
+      try {
+      const response = await gingrPost(baseUrl, apiKey, "/api/v1/reservations_by_owner", lookup.body);
+      const reservations = unwrapGingrArray(response);
+
+        return {
+          lookup: { label: `owner:${lookup.label}`, returned: reservations.length },
+          reservations,
+        };
+    } catch (error) {
+        return {
+          lookup: {
+            error: error instanceof Error ? error.message : "Lookup failed.",
+            label: `owner:${lookup.label}`,
+            returned: 0,
+          },
+          reservations: [],
+        };
+      }
+    }),
+  );
+
+  for (const lookupResult of lookupResults) {
+    lookups.push(lookupResult.lookup);
+
+    for (const reservation of lookupResult.reservations) {
+      addReservationToMap(reservationById, reservation);
+    }
+  }
+
+  return {
+    lookups,
+    reservations: Array.from(reservationById.values()),
+  };
+}
+
+async function fetchCompanyReservationsForOwner(
+  baseUrl: string,
+  apiKey: string,
+  ownerIds: string[],
+  ownerEmail: string | undefined,
+  ownerPets: OwnerPetReference[],
+  locations: NormalizedLocation[],
+) {
+  const today = new Date();
+  const fromDate = new Date(today);
+  fromDate.setFullYear(today.getFullYear() - 1);
+  const toDate = new Date(today);
+  toDate.setFullYear(today.getFullYear() + 1);
+  const windows = buildDateWindows(fromDate, toDate, 30);
+  const scopedLocations = locations.filter((location) => location.id);
+  const reservationById = new Map<string, unknown>();
+  const lookups: Array<{
+    error?: string;
+    label: string;
+    returned: number;
+    sampleLocations?: string[];
+    sampleReservationIds?: string[];
+    totalReturned?: number;
+  }> = [];
+
+  for (const window of windows) {
+    const label = `company:any:${window.from}:${window.to}`;
+
+    try {
+      const response = await gingrPost(baseUrl, apiKey, "/api/v1/reservations", {
+        end_date: window.to,
+        start_date: window.from,
+      });
+      const reservations = unwrapGingrArray(response);
+      const matchingReservations = reservations.filter((reservation) =>
+        reservationMatchesOwner(reservation, ownerIds, ownerEmail, ownerPets),
+      );
+
+      lookups.push({
+        label,
+        returned: matchingReservations.length,
+        sampleLocations: summarizeReservationLocations(matchingReservations),
+        sampleReservationIds: summarizeReservationIds(matchingReservations),
+        totalReturned: reservations.length,
+      });
+
+      for (const reservation of matchingReservations) {
+        addReservationToMap(reservationById, reservation);
+      }
+    } catch (error) {
+      lookups.push({
+        error: error instanceof Error ? error.message : "Lookup failed.",
+        label,
+        returned: 0,
+      });
+    }
+  }
+
+  for (const location of scopedLocations) {
+    for (const window of windows) {
+      const label = `company:${location.city}:${window.from}:${window.to}`;
+
+      try {
+        const response = await gingrPost(baseUrl, apiKey, "/api/v1/reservations", {
+          end_date: window.to,
+          location_id: String(location.id),
+          start_date: window.from,
+        });
+        const reservations = unwrapGingrArray(response);
+        const matchingReservations = reservations.filter((reservation) =>
+          reservationMatchesOwner(reservation, ownerIds, ownerEmail, ownerPets),
+        );
+
+        lookups.push({
+          label,
+          returned: matchingReservations.length,
+          sampleLocations: summarizeReservationLocations(matchingReservations),
+          sampleReservationIds: summarizeReservationIds(matchingReservations),
+          totalReturned: reservations.length,
+        });
+
+        for (const reservation of matchingReservations) {
+          addReservationToMap(reservationById, reservation);
+        }
+      } catch (error) {
+        lookups.push({
+          error: error instanceof Error ? error.message : "Lookup failed.",
+          label,
+          returned: 0,
+        });
+      }
+    }
+  }
+
+  return {
+    lookups,
+    reservations: Array.from(reservationById.values()),
+  };
+}
+
+function buildDateWindows(fromDate: Date, toDate: Date, daysPerWindow: number) {
+  const windows: Array<{ from: string; to: string }> = [];
+  const cursor = new Date(fromDate);
+
+  while (cursor <= toDate) {
+    const windowStart = new Date(cursor);
+    const windowEnd = new Date(cursor);
+    windowEnd.setDate(windowEnd.getDate() + daysPerWindow - 1);
+
+    if (windowEnd > toDate) {
+      windowEnd.setTime(toDate.getTime());
+    }
+
+    windows.push({
+      from: formatIsoDateForGingr(windowStart),
+      to: formatIsoDateForGingr(windowEnd),
+    });
+    cursor.setDate(cursor.getDate() + daysPerWindow);
+  }
+
+  return windows;
+}
+
+function addReservationToMap(reservationById: Map<string, unknown>, reservation: unknown) {
+  if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) {
+    return;
+  }
+
+  const record = reservation as Record<string, unknown>;
+  const reservationId = readAnyString(record, ["r_id", "reservation_id", "id"]);
+  const locationId = readReservationLocationKey(record);
+
+  if (reservationId) {
+    reservationById.set([reservationId, locationId].filter(Boolean).join("|"), reservation);
+  }
+}
+
+function readReservationLocationKey(reservation: Record<string, unknown>) {
+  const directLocationId = readAnyString(reservation, ["location_id", "loc_id", "l_id"]);
+
+  if (directLocationId) {
+    return `location:${directLocationId}`;
+  }
+
+  const location = readRecord(reservation, "location");
+  const nestedLocationId = location ? readAnyString(location, ["id", "location_id", "l_id"]) : null;
+
+  if (nestedLocationId) {
+    return `location:${nestedLocationId}`;
+  }
+
+  const locationName = readAnyString(reservation, ["location_city", "city", "location_name", "location"]);
+
+  return locationName ? `location:${normalizeCityName(locationName)?.toLowerCase() ?? locationName.toLowerCase()}` : null;
+}
+
+function countReservationsByLocation(reservations: NormalizedReservation[]) {
+  return reservations.reduce<Record<string, number>>((counts, reservation) => {
+    const key = reservation.location ?? "Unknown";
+
+    counts[key] = (counts[key] ?? 0) + 1;
+
+    return counts;
+  }, {});
+}
+
+async function findOwnerRecordsByEmail(baseUrl: string, apiKey: string, user: AuthUser) {
+  const ownerByKey = new Map<string, Record<string, unknown>>();
+  const directOwner = await findOwnerByEmail(baseUrl, apiKey, user).catch(() => null);
+
+  addOwnerRecord(ownerByKey, unwrapGingrData<Record<string, unknown>>(directOwner));
+
+  if (user.email) {
+    const lookupVariants = [
+      { label: "email", params: { "params[email]": user.email } },
+      { label: "username", params: { "params[username]": user.email } },
+      { label: "directEmail", params: { email: user.email } },
+      { label: "directUsername", params: { username: user.email } },
+    ];
+
+    for (const lookup of lookupVariants) {
+      const response = await gingrGet(baseUrl, apiKey, "/api/v1/owners", lookup.params).catch(() => null);
+      const records = unwrapGingrArray(response);
+
+      for (const record of records) {
+        if (!record || typeof record !== "object" || Array.isArray(record)) {
+          continue;
+        }
+
+        addOwnerRecord(ownerByKey, record as Record<string, unknown>);
+      }
+    }
+  }
+
+  return Array.from(ownerByKey.values());
+}
+
+function addOwnerRecord(
+  ownerByKey: Map<string, Record<string, unknown>>,
+  owner: Record<string, unknown> | null,
+) {
+  if (!owner) {
+    return;
+  }
+
+  const id = readAnyString(owner, ["id", "owner_id", "o_id", "user_id"]);
+
+  if (!id) {
+    return;
+  }
+
+  const homeLocation = readAnyString(owner, ["home_location", "location_id", "l_id"]);
+  const email = readAnyString(owner, ["email", "username"]);
+  const key = [id, homeLocation, email].filter(Boolean).join("|");
+
+  ownerByKey.set(key, owner);
+}
+
+type OwnerPetReference = {
+  id: string | null;
+  name: string | null;
+};
+
+function readOwnerPetReferences(ownerData: Record<string, unknown> | null) {
+  const animals = Array.isArray(ownerData?.animals) ? ownerData.animals : [];
+
+  return animals
+    .map((animal) => {
+      if (!animal || typeof animal !== "object" || Array.isArray(animal)) {
+        return null;
+      }
+
+      const pet = animal as Record<string, unknown>;
+
+      return {
+        id: readAnyString(pet, ["a_id", "id", "animal_id", "pet_id"]),
+        name: readAnyString(pet, ["animal_name", "name", "pet_name"]),
+      };
+    })
+    .filter((pet): pet is OwnerPetReference => Boolean(pet?.id || pet?.name));
+}
+
+function uniqueOwnerPetReferences(pets: OwnerPetReference[]) {
+  const petByKey = new Map<string, OwnerPetReference>();
+
+  for (const pet of pets) {
+    const key = [pet.id ?? "", pet.name?.toLowerCase() ?? ""].join("|");
+
+    petByKey.set(key, pet);
+  }
+
+  return Array.from(petByKey.values());
+}
+
+function reservationMatchesOwner(
+  value: unknown,
+  ownerIds: string[],
+  ownerEmail: string | undefined,
+  ownerPets: OwnerPetReference[] = [],
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const reservation = value as Record<string, unknown>;
+  const directOwnerId = readAnyString(reservation, ["owner_id", "o_id", "user_id"]);
+  const directEmail = readAnyString(reservation, ["email", "owner_email", "username"]);
+  const owner = readRecord(reservation, "owner");
+  const ownerRecordId = owner ? readAnyString(owner, ["id", "owner_id", "o_id", "user_id"]) : null;
+  const ownerRecordEmail = owner ? readAnyString(owner, ["email", "username"]) : null;
+
+  if (directOwnerId && ownerIds.includes(directOwnerId)) {
+    return true;
+  }
+
+  if (ownerRecordId && ownerIds.includes(ownerRecordId)) {
+    return true;
+  }
+
+  if (ownerEmail && directEmail && directEmail.toLowerCase() === ownerEmail.toLowerCase()) {
+    return true;
+  }
+
+  return Boolean(
+    (ownerEmail && ownerRecordEmail && ownerRecordEmail.toLowerCase() === ownerEmail.toLowerCase()) ||
+      reservationMatchesOwnerPet(reservation, ownerPets),
+  );
+}
+
+function reservationMatchesOwnerPet(
+  reservation: Record<string, unknown>,
+  ownerPets: OwnerPetReference[],
+) {
+  if (ownerPets.length === 0) {
+    return false;
+  }
+
+  const reservationPetNames = readReservationAnimalNames(reservation).map((name) =>
+    normalizePetLookupValue(name),
+  );
+  const reservationPetIds = readReservationAnimalIds(reservation);
+
+  return ownerPets.some((pet) => {
+    const petIdMatches = Boolean(pet.id && reservationPetIds.includes(pet.id));
+    const petNameMatches = Boolean(
+      pet.name && reservationPetNames.includes(normalizePetLookupValue(pet.name)),
+    );
+
+    return petIdMatches || petNameMatches;
+  });
+}
+
+function readReservationAnimalIds(reservation: Record<string, unknown>) {
+  const directAnimalId = readAnyString(reservation, ["animal_id", "a_id", "pet_id"]);
+  const animals = reservation.animals;
+  const animalIds = directAnimalId ? [directAnimalId] : [];
+
+  if (Array.isArray(animals)) {
+    for (const animal of animals) {
+      if (!animal || typeof animal !== "object" || Array.isArray(animal)) {
+        continue;
+      }
+
+      const animalId = readAnyString(animal as Record<string, unknown>, [
+        "animal_id",
+        "a_id",
+        "id",
+        "pet_id",
+      ]);
+
+      if (animalId) {
+        animalIds.push(animalId);
+      }
+    }
+  }
+
+  return Array.from(new Set(animalIds));
+}
+
+function normalizePetLookupValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function summarizeReservationLocations(reservations: unknown[]) {
+  return Array.from(
+    new Set(
+      reservations
+        .map((reservation) => {
+          if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) {
+            return null;
+          }
+
+          return readAnyString(reservation as Record<string, unknown>, [
+            "location_id",
+            "loc_id",
+            "l_id",
+            "location_city",
+            "city",
+            "location_name",
+            "location",
+          ]);
+        })
+        .filter((location): location is string => Boolean(location)),
+    ),
+  ).slice(0, 8);
+}
+
+function summarizeReservationIds(reservations: unknown[]) {
+  return reservations
+    .map((reservation) => {
+      if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) {
+        return null;
+      }
+
+      return readAnyString(reservation as Record<string, unknown>, ["r_id", "reservation_id", "id"]);
+    })
+    .filter((reservationId): reservationId is string => Boolean(reservationId))
+    .slice(0, 10);
 }
 
 async function buildReservationDetailTest(baseUrl: string, apiKey: string, user: AuthUser) {
@@ -497,10 +1300,16 @@ async function buildReservationDetailTest(baseUrl: string, apiKey: string, user:
   const estimate = await gingrGet(baseUrl, apiKey, "/api/v1/existing_reservation_estimate", {
     id: selectedReservationId,
   }).then(buildDebugResponseSummary).catch(formatDebugLookupError);
+  const broadReservationDiscovery = await buildCurrentReservations(baseUrl, apiKey, user);
 
   return {
     ownerId: String(ownerId),
     reservationCount: rawReservations.length,
+    broadReservationDiscovery: {
+      ownerIds: broadReservationDiscovery.ownerIds ?? [],
+      reservationCount: broadReservationDiscovery.reservations.length,
+      debug: broadReservationDiscovery.debug,
+    },
     selectedReservation: {
       id: selectedReservationId,
       normalized: normalizeReservation(selectedReservation),
@@ -589,6 +1398,7 @@ async function buildReservationDetail(
     reservations: selectedReservations.map((reservation) =>
       normalizeReservationDetail(reservation, locationById),
     ),
+    rawReservations: selectedReservations.map(redact),
     estimate,
   };
 }
@@ -688,6 +1498,110 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
   };
 }
 
+async function buildReportCardFileDiscovery(baseUrl: string, apiKey: string, user: AuthUser) {
+  const owner = await findOwnerByEmail(baseUrl, apiKey, user);
+  const ownerData = unwrapGingrData<Record<string, unknown>>(owner);
+  const ownerId = extractFirstId(owner);
+  const ownerEmail = user.email ?? readString(ownerData ?? {}, "email") ?? undefined;
+  const animals = Array.isArray(ownerData?.animals) ? ownerData.animals : [];
+  const ownerPets = animals
+    .map((animal) => {
+      if (!animal || typeof animal !== "object" || Array.isArray(animal)) {
+        return null;
+      }
+
+      const pet = animal as Record<string, unknown>;
+
+      return {
+        id: readAnyString(pet, ["a_id", "id", "animal_id", "pet_id"]),
+        name: readAnyString(pet, ["animal_name", "name", "pet_name"]),
+      };
+    })
+    .filter((pet): pet is { id: string | null; name: string | null } => Boolean(pet?.id || pet?.name));
+  const locations = await gingrGet(baseUrl, apiKey, "/api/v1/get_locations")
+    .then((locationsResponse) =>
+      unwrapGingrArray(locationsResponse)
+        .map(normalizeLocation)
+        .filter((location): location is NormalizedLocation => Boolean(location)),
+    )
+    .catch(() => []);
+  const locationLookups = locations
+    .filter((location) => location.id)
+    .map((location) => ({
+      label: `recent30:${location.city}`,
+      params: {
+        limit: "25",
+        location_id: String(location.id),
+        number_days: "30",
+      },
+    }));
+  const lookupVariants = [
+    {
+      label: "recent7",
+      params: {
+        limit: "25",
+        number_days: "7",
+      },
+    },
+    {
+      label: "recent30",
+      params: {
+        limit: "50",
+        number_days: "30",
+      },
+    },
+    {
+      label: "defaultLimit",
+      params: {
+        limit: "25",
+      },
+    },
+    ...locationLookups,
+  ];
+
+  const lookups = await Promise.all(
+    lookupVariants.map(async (variant) => {
+      const response = await gingrGet(baseUrl, apiKey, "/api/v1/report_card_files", variant.params)
+        .catch((error) => ({ __error: error instanceof Error ? error.message : "Gingr lookup failed." }));
+
+      if (response && typeof response === "object" && "__error" in response) {
+        return {
+          label: variant.label,
+          params: variant.params,
+          error: String((response as { __error: string }).__error),
+        };
+      }
+
+      const files = unwrapGingrArray(response);
+      const summaries = files
+        .map((file) => normalizeReportCardFileSummary(file, String(ownerId ?? ""), ownerEmail, ownerPets))
+        .filter((file): file is NonNullable<ReturnType<typeof normalizeReportCardFileSummary>> =>
+          Boolean(file),
+        );
+
+      return {
+        label: variant.label,
+        params: variant.params,
+        totalReturned: files.length,
+        signedInOwnerMatchCount: summaries.filter((file) => file.matchesSignedInOwner).length,
+        petMatchCount: summaries.filter((file) => file.matchedPetNames.length > 0).length,
+        reservationReferenceCount: summaries.filter((file) => file.reservationId).length,
+        sampleFieldKeys: files.length > 0 ? readObjectKeys(files[0]) : [],
+        samples: summaries.slice(0, 5),
+        signedInOwnerSamples: summaries.filter((file) => file.matchesSignedInOwner).slice(0, 10),
+      };
+    }),
+  );
+
+  return {
+    ownerId: ownerId ? String(ownerId) : null,
+    ownerPetCount: ownerPets.length,
+    lookups,
+    note:
+      "report_card_files appears to be a recent-upload endpoint. Use signedInOwnerMatchCount, petMatchCount, and reservationReferenceCount to decide whether report cards can be safely shown per client.",
+  };
+}
+
 async function buildCurrentOwnerProfile(baseUrl: string, apiKey: string, user: AuthUser) {
   const owner = await findOwnerByEmail(baseUrl, apiKey, user);
   const ownerData = unwrapGingrData<Record<string, unknown>>(owner);
@@ -713,6 +1627,7 @@ async function buildCurrentOwnerProfile(baseUrl: string, apiKey: string, user: A
     email: readString(ownerData, "email") ?? user.email ?? null,
     imageUrl: image?.url ?? null,
     imageSourceKey: image?.key ?? null,
+    rawOwner: redact(ownerData),
   };
 }
 
@@ -742,7 +1657,42 @@ async function buildCurrentClientSnapshot(
   };
 }
 
-function normalizeAnimal(value: unknown) {
+type NormalizedAnimalImmunization = {
+  administeredDate: string | null;
+  expiresDate: string | null;
+  id: string | null;
+  name: string;
+  rawData: unknown;
+  status: string | null;
+};
+
+const IMMUNIZATION_TYPE_ID_KEYS = [
+  "id",
+  "i_id",
+  "ri_id",
+  "r_i_id",
+  "type_id",
+  "immunization_id",
+  "immunization_type_id",
+  "required_id",
+  "required_immunization_id",
+];
+
+const IMMUNIZATION_NAME_KEYS = [
+  "name",
+  "label",
+  "title",
+  "type",
+  "type_name",
+  "immunization",
+  "immunization_name",
+  "immunization_type",
+  "immunization_type_name",
+  "required_immunization",
+  "required_immunization_name",
+];
+
+function normalizeAnimal(value: unknown, immunizations: NormalizedAnimalImmunization[] = []) {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -781,6 +1731,7 @@ function normalizeAnimal(value: unknown) {
     medicationSchedules: normalizeMedicationSchedules(readRecord(animal, "form_data")),
     medicines: stripHtml(readString(animal, "medicines")),
     notes: stripHtml(readString(animal, "a_notes")),
+    immunizations,
     vaccinationSummary: immunizationExpirationSeconds
       ? `Vaccinations current through ${formatDateFromSeconds(immunizationExpirationSeconds)}`
       : "Vaccination status not listed",
@@ -790,6 +1741,58 @@ function normalizeAnimal(value: unknown) {
     source: "gingr",
     vetName: readString(animal, "vet_name"),
     vetPhone: readString(animal, "vet_phone"),
+  };
+}
+
+function normalizeAnimalImmunization(
+  value: unknown,
+  immunizationTypeById: Map<string, string>,
+): NormalizedAnimalImmunization | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const immunization = value as Record<string, unknown>;
+  const nestedType =
+    readRecord(immunization, "immunization_type") ??
+    readRecord(immunization, "required_immunization") ??
+    readRecord(immunization, "type");
+  const typeId =
+    readAnyString(immunization, IMMUNIZATION_TYPE_ID_KEYS) ??
+    (nestedType ? readAnyString(nestedType, IMMUNIZATION_TYPE_ID_KEYS) : null);
+  const name =
+    readAnyString(immunization, IMMUNIZATION_NAME_KEYS) ??
+    (nestedType ? readAnyString(nestedType, IMMUNIZATION_NAME_KEYS) : null) ??
+    (typeId ? immunizationTypeById.get(typeId) : null) ??
+    "Immunization";
+
+  return {
+    administeredDate: readAnyDate(immunization, [
+      "administered_date",
+      "administered_stamp",
+      "administered_at",
+      "given_at",
+      "given_date",
+      "date_given",
+      "vaccination_date",
+      "created_at",
+    ]),
+    expiresDate: readAnyDate(immunization, [
+      "expiration_date",
+      "expiration_stamp",
+      "expires_at",
+      "expires_on",
+      "expires",
+      "expiration",
+      "expiry",
+      "expiry_date",
+      "date_expires",
+      "end_date",
+    ]),
+    id: readAnyString(immunization, ["id", "animal_immunization_id", "immunization_id"]),
+    name,
+    rawData: redact(immunization),
+    status: readAnyString(immunization, ["status", "status_name"]),
   };
 }
 
@@ -809,6 +1812,8 @@ type NormalizedReservationDetail = NormalizedReservation & {
   cancelledBy: string | null;
   checkInAt: string | null;
   checkOutAt: string | null;
+  confirmedAt: string | null;
+  createdAt: string | null;
   createdBy: string | null;
   endDateTimeLabel: string | null;
   feedingAmount: string | null;
@@ -898,6 +1903,8 @@ function normalizeReservationDetail(
       "check_out_stamp_formatted",
       "checkout_stamp_formatted",
     ]),
+    confirmedAt: formatGingrTimestamp(readAnyString(reservation, ["confirmed_stamp"])),
+    createdAt: formatGingrTimestamp(readAnyString(reservation, ["created_at"])),
     createdBy: readAnyString(reservation, ["created_by", "created_by_username"]),
     endDateTimeLabel: readAnyString(reservation, ["end_date_formatted", "checkout_date_formatted"]),
     feedingAmount: readAnyString(reservation, ["feeding_amount", "feedingAmount"]),
@@ -1016,7 +2023,7 @@ function normalizeEstimateReservation(value: unknown) {
 }
 
 function readReservationStatus(reservation: Record<string, unknown>) {
-  if (readAnyString(reservation, ["cancel_stamp", "cancelled_at", "canceled_at"])) {
+  if (readAnyString(reservation, ["cancel_stamp"])) {
     return "Cancelled";
   }
 
@@ -1032,7 +2039,31 @@ function readReservationStatus(reservation: Record<string, unknown>) {
     return "Wait Listed";
   }
 
-  return readAnyString(reservation, ["status", "status_name", "reservation_status"]) ?? "Confirmed";
+  if (readAnyString(reservation, ["confirmed_stamp"])) {
+    return "Confirmed";
+  }
+
+  const explicitStatus = readAnyString(reservation, ["status", "status_name", "reservation_status"]);
+
+  if (explicitStatus && !explicitStatus.trim().toLowerCase().includes("confirm")) {
+    return explicitStatus;
+  }
+
+  return "Unconfirmed";
+}
+
+function formatGingrTimestamp(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const numericValue = Number(value);
+
+  if (Number.isFinite(numericValue) && numericValue > 999999999) {
+    return new Date(numericValue * 1000).toISOString();
+  }
+
+  return value;
 }
 
 function readReservationLocation(
@@ -1168,7 +2199,27 @@ function unwrapGingrArray(value: unknown): unknown[] {
 
   const record = data as Record<string, unknown>;
 
-  for (const key of ["locations", "location", "invoices", "invoice", "data", "items", "results"]) {
+  for (const key of [
+    "locations",
+    "location",
+    "reservations",
+    "reservation",
+    "report_card_files",
+    "report_card_file",
+    "files",
+    "file",
+    "immunizations",
+    "immunization",
+    "immunization_types",
+    "immunization_type",
+    "required_immunizations",
+    "required_immunization",
+    "invoices",
+    "invoice",
+    "data",
+    "items",
+    "results",
+  ]) {
     const nestedValue = record[key];
 
     if (Array.isArray(nestedValue)) {
@@ -1270,6 +2321,80 @@ function normalizeInvoiceSummary(value: unknown) {
     status: readAnyString(invoice, ["status", "invoice_status"]),
     date: readAnyDate(invoice, ["date", "invoice_date", "created_at", "created", "created_date"]),
     total: readAnyString(invoice, ["total", "invoice_total", "amount", "balance"]),
+  };
+}
+
+function normalizeReportCardFileSummary(
+  value: unknown,
+  ownerId: string,
+  ownerEmail: string | undefined,
+  ownerPets: Array<{ id: string | null; name: string | null }>,
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const file = value as Record<string, unknown>;
+  const directOwnerId = readAnyString(file, [
+    "owner_id",
+    "o_id",
+    "customer_id",
+    "client_id",
+    "user_id",
+    "owner",
+  ]);
+  const directOwnerEmail = readAnyString(file, [
+    "email",
+    "owner_email",
+    "customer_email",
+    "client_email",
+  ]);
+  const animalId = readAnyString(file, ["animal_id", "a_id", "pet_id"]);
+  const petName = readAnyString(file, ["animal_name", "pet_name"]);
+  const owner = readRecord(file, "owner") ?? readRecord(file, "customer") ?? readRecord(file, "client");
+  const animal = readRecord(file, "animal") ?? readRecord(file, "pet");
+  const nestedOwnerId = owner ? readAnyString(owner, ["id", "owner_id", "o_id", "customer_id"]) : null;
+  const nestedOwnerEmail = owner ? readAnyString(owner, ["email", "owner_email", "customer_email"]) : null;
+  const nestedAnimalId = animal ? readAnyString(animal, ["id", "animal_id", "a_id", "pet_id"]) : null;
+  const nestedPetName = animal ? readAnyString(animal, ["name", "animal_name", "pet_name"]) : null;
+  const matchedPetNames = ownerPets
+    .filter((pet) => {
+      const petIdMatches = Boolean(pet.id && (pet.id === animalId || pet.id === nestedAnimalId));
+      const petNameMatches = Boolean(
+        pet.name &&
+          [petName, nestedPetName].some(
+            (candidate) => candidate?.toLowerCase() === pet.name?.toLowerCase(),
+          ),
+      );
+
+      return petIdMatches || petNameMatches;
+    })
+    .map((pet) => pet.name ?? pet.id)
+    .filter((pet): pet is string => Boolean(pet));
+  const matchesSignedInOwner =
+    Boolean(ownerId && [directOwnerId, nestedOwnerId].includes(ownerId)) ||
+    Boolean(
+      ownerEmail &&
+        [directOwnerEmail, nestedOwnerEmail].some(
+          (candidate) => candidate?.toLowerCase() === ownerEmail.toLowerCase(),
+        ),
+    ) ||
+    matchedPetNames.length > 0;
+
+  return {
+    id: readAnyString(file, ["id", "file_id", "report_card_file_id", "rc_file_id"]),
+    animalId: animalId ?? nestedAnimalId,
+    createdAt: readAnyString(file, ["created_at", "create_stamp", "uploaded_at", "upload_date"]),
+    fileName: readAnyString(file, ["file_name", "filename", "name", "title"]),
+    fileType: readAnyString(file, ["file_type", "mime_type", "type", "extension"]),
+    fileUrl: readAnyString(file, ["file_url", "url", "download_url", "public_url", "path", "file"]),
+    locationId: readAnyString(file, ["location_id", "l_id"]),
+    matchedPetNames,
+    matchesSignedInOwner,
+    ownerId: directOwnerId ?? nestedOwnerId,
+    petName: petName ?? nestedPetName,
+    reservationId: readAnyString(file, ["reservation_id", "r_id", "booking_id"]),
+    rawFieldKeys: readObjectKeys(file),
   };
 }
 
@@ -1709,17 +2834,33 @@ async function gingrPost(
 }
 
 async function gingrRequest(url: URL, init: RequestInit) {
-  const response = await fetch(url, init);
-  const text = await response.text();
-  const json = parseJson(text);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), gingrRequestTimeoutMs);
 
-  if (!response.ok) {
-    throw new Error(
-      `Gingr returned HTTP ${response.status}: ${typeof json === "string" ? json : JSON.stringify(redact(json))}`,
-    );
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    const json = parseJson(text);
+
+    if (!response.ok) {
+      throw new Error(
+        `Gingr returned HTTP ${response.status}: ${typeof json === "string" ? json : JSON.stringify(redact(json))}`,
+      );
+    }
+
+    return redact(json);
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`Gingr request timed out after ${gingrRequestTimeoutMs / 1000} seconds.`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return redact(json);
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -1738,6 +2879,15 @@ function normalizeBaseUrl(value?: string) {
   }
 
   return value.replace(/\/+$/, "");
+}
+
+function isAbortError(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      (error as { name?: unknown }).name === "AbortError",
+  );
 }
 
 function parseJson(text: string) {

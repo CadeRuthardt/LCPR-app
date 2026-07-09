@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as React from "react";
 import {
   type DimensionValue,
@@ -12,7 +12,15 @@ import {
   View,
 } from "react-native";
 
-import { Button, Card, Icon, Screen, Text, TextField } from "@/components/primitives";
+import {
+  BackChevronButton,
+  Button,
+  Card,
+  Icon,
+  Screen,
+  Text,
+  TextField,
+} from "@/components/primitives";
 import { createReservationRequest, getCurrentClientPetsForApp } from "@/services/client-data";
 import {
   getGingrReservationRequestCatalog,
@@ -21,6 +29,7 @@ import {
 import { colors, radius, spacing } from "@/theme";
 import type { Pet } from "@/types/app";
 import type { ReservationRequest } from "@/types/database";
+import { goBackOrReplace, resolveFallbackRoute } from "@/utils/navigation";
 
 const steps = ["Pets", "Location", "Type", "Dates", "Experience", "Details"] as const;
 const fallbackLocationOptions = ["Amarillo", "Wichita Falls", "New Braunfels"];
@@ -50,7 +59,8 @@ type PetSpeciesKind = "cat" | "dog" | "mixed" | "unknown";
 type ReservationTypeOption = (typeof fallbackReservationTypeOptions)[number];
 
 export function RequestReservationScreen() {
-  const params = useLocalSearchParams<{ petIds?: string }>();
+  const params = useLocalSearchParams<{ petIds?: string; returnTo?: string }>();
+  const fallbackRoute = resolveFallbackRoute(params.returnTo, "/reservations");
   const initialPetIds = React.useMemo(
     () => new Set((params.petIds ?? "").split(",").filter(Boolean)),
     [params.petIds],
@@ -236,6 +246,12 @@ export function RequestReservationScreen() {
     stepScrollRef.current?.scrollTo({ animated: false, y: 0 });
   }, [activeStepIndex]);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      stepScrollRef.current?.scrollTo({ animated: false, y: 0 });
+    }, []),
+  );
+
   React.useEffect(() => {
     if (!availableReservationTypeOptions.includes(reservationType)) {
       setReservationType(availableReservationTypeOptions[0] ?? fallbackReservationTypeOptions[0]);
@@ -408,7 +424,7 @@ export function RequestReservationScreen() {
     setExitConfirmVisible(false);
     window.setTimeout(() => {
       resetReservationFlow();
-      router.back();
+      goBackOrReplace(fallbackRoute);
     }, 0);
   }
 
@@ -456,7 +472,7 @@ export function RequestReservationScreen() {
     return (
       <Screen contentStyle={styles.content}>
         <View style={styles.header}>
-          <Button title="Back" variant="ghost" onPress={() => router.back()} />
+          <BackChevronButton onPress={() => goBackOrReplace(fallbackRoute)} />
           <Text variant="title" style={styles.headerTitle}>
             Request Submitted
           </Text>
@@ -887,7 +903,7 @@ export function RequestReservationScreen() {
 
       <View style={styles.footerActions}>
         {activeStepIndex > 0 ? (
-          <Button title="Back" variant="ghost" onPress={goToPreviousStep} />
+          <BackChevronButton accessibilityLabel="Previous step" onPress={goToPreviousStep} />
         ) : null}
         {activeStep === "Details" ? (
           <Button

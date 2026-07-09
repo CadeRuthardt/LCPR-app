@@ -1,15 +1,18 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import * as React from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
+import { BackChevronButton, Card, Icon, Screen, Text } from "@/components/primitives";
 import { getCurrentClientPetForApp } from "@/services/client-data";
 import { colors, radius, spacing } from "@/theme";
-import type { Pet, PetFeedingSchedule, PetMedicationSchedule } from "@/types/app";
+import type { Pet, PetFeedingSchedule, PetImmunization, PetMedicationSchedule } from "@/types/app";
+import { goBackOrReplace } from "@/utils/navigation";
 
 export function PetProfileScreen() {
   const params = useLocalSearchParams<{ petId?: string }>();
   const petId = typeof params.petId === "string" ? params.petId : "";
+  const insets = useSafeAreaInsets();
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [pet, setPet] = React.useState<Pet | null>(null);
@@ -51,90 +54,93 @@ export function PetProfileScreen() {
   }, [petId]);
 
   return (
-    <Screen contentStyle={styles.content}>
-      <View style={styles.header}>
-        <Button
-          onPress={() => router.back()}
-          title="Back"
-          variant="ghost"
-          style={styles.backButton}
+    <Screen backgroundColor={colors.ivory} contentStyle={styles.content} topSafeArea={false}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
+        <BackChevronButton
+          color="light"
+          onPress={() => goBackOrReplace("/pets")}
+          style={[styles.backButton, { top: insets.top + spacing.md }]}
         />
+        <Text variant="heading" tone="inverse" style={styles.headerTitle}>
+          {pet?.name ?? "Pet Profile"}
+        </Text>
       </View>
 
-      {isLoading ? <Text tone="secondary">Preparing pet profile...</Text> : null}
-      {errorMessage ? <Text tone="secondary">{errorMessage}</Text> : null}
+      {isLoading ? (
+        <View style={styles.messageWrap}>
+          <Text tone="secondary">Preparing pet profile...</Text>
+        </View>
+      ) : null}
+      {errorMessage ? (
+        <View style={styles.messageWrap}>
+          <Text tone="secondary">{errorMessage}</Text>
+        </View>
+      ) : null}
 
       {pet ? (
-        <>
-          <Card variant="elevated" style={styles.heroCard}>
+        <View style={styles.profileBody}>
+          <View style={styles.portraitWrap}>
             <Image source={{ uri: pet.imageUrl }} style={styles.petImage} />
-            <View style={styles.heroCopy}>
-              <Text variant="heading">{pet.name}</Text>
-              <Text variant="body" tone="secondary">
-                {pet.breed}
-              </Text>
-              <Text variant="caption" tone="muted">
-                {pet.age} old | {pet.weight}
-              </Text>
-            </View>
-            <View style={styles.badgeRow}>
-              {pet.vip ? <MiniBadge label="VIP" /> : null}
-              {pet.fixed ? <MiniBadge label="Fixed" /> : null}
-              <MiniBadge label={pet.status} />
-            </View>
+          </View>
+
+          <View style={styles.badgeRow}>
+            {pet.vip ? <MiniBadge label="VIP" /> : null}
+            {pet.fixed ? <MiniBadge label="Fixed" /> : null}
+            <MiniBadge label={pet.status} />
+          </View>
+
+          <Card variant="elevated" style={styles.summaryCard}>
+            <FieldRow label="Breed" value={pet.breed} />
+            <FieldRow label="Age" value={pet.age} />
+            <FieldRow label="Weight" value={pet.weight} />
+            <FieldRow label="Birthday" value={formatIsoDate(pet.birthday)} />
           </Card>
 
-          <Section title="Profile">
-            <Card style={styles.detailCard}>
-              <FieldRow label="Species" value={pet.species} />
-              <FieldRow label="Gender" value={pet.gender} />
-              <FieldRow label="Birthday" value={formatIsoDate(pet.birthday)} />
-              <FieldRow label="Color & markings" value={pet.colorAndMarkings} />
-              <FieldRow label="Source" value={pet.source === "gingr" ? "Gingr" : "Phase 1 seed"} />
-            </Card>
-          </Section>
+          <Card variant="elevated" style={styles.menuCard}>
+            <MenuRow
+              icon="shield"
+              title="Vaccination Records"
+              value={formatVaccinationStatus(pet)}
+            />
+            <MenuRow
+              icon="utensils"
+              title="Feeding Instructions"
+              value={formatFeedingSummary(pet)}
+            />
+            <MenuRow icon="heart" title="Medical Notes" value={formatMedicalSummary(pet)} />
+            <MenuRow icon="info" title="Care Notes" value={formatCareSummary(pet)} />
+            <MenuRow icon="user" title="Veterinarian" value={pet.vetName ?? "Not listed"} />
+          </Card>
 
-          <Section title="Vaccinations">
-            <Card style={styles.detailCard}>
-              <FieldRow label="Summary" value={pet.vaccinationSummary} />
-              <FieldRow
-                label="Next expiration"
-                value={formatIsoDate(pet.nextImmunizationExpiration)}
-              />
-            </Card>
-          </Section>
+          <Card variant="elevated" style={styles.detailCard}>
+            <Text variant="title">Vaccination Records</Text>
+            <ImmunizationList immunizations={pet.immunizations ?? []} />
+          </Card>
 
-          <Section title="Feeding">
-            <Card style={styles.detailCard}>
-              <FieldRow label="Food type" value={pet.feedingType} />
-              <FieldRow label="Method" value={pet.feedingMethod} />
-              <FieldRow label="Notes" value={pet.feedingNotes} />
-              <FeedingSchedules schedules={pet.feedingSchedules ?? []} />
-            </Card>
-          </Section>
+          <Card variant="elevated" style={styles.detailCard}>
+            <Text variant="title">Profile Details</Text>
+            <FieldRow label="Species" value={pet.species} />
+            <FieldRow label="Gender" value={pet.gender} />
+            <FieldRow label="Color & markings" value={pet.colorAndMarkings} />
+            <FieldRow label="Source" value={pet.source === "gingr" ? "Gingr" : "Phase 1 seed"} />
+          </Card>
 
-          <Section title="Medications">
-            <Card style={styles.detailCard}>
-              <FieldRow label="Medicines" value={pet.medicines} />
-              <FieldRow label="Medication notes" value={pet.medicationNotes} />
-              <MedicationSchedules schedules={pet.medicationSchedules ?? []} />
+          {pet.rawData ? (
+            <Card variant="elevated" style={styles.rawCard}>
+              <View style={styles.rawHeader}>
+                <Text variant="title">Developer Data</Text>
+                <Text variant="caption" tone="muted">
+                  {Object.keys(pet.rawData).length} fields
+                </Text>
+              </View>
+              {Object.entries(pet.rawData)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, value]) => (
+                  <FieldRow key={key} label={key} value={formatRawValue(value)} />
+                ))}
             </Card>
-          </Section>
-
-          <Section title="Care Notes">
-            <Card style={styles.detailCard}>
-              <FieldRow label="Allergies" value={pet.allergies} />
-              <FieldRow label="Profile notes" value={pet.notes} />
-            </Card>
-          </Section>
-
-          <Section title="Veterinarian">
-            <Card style={styles.detailCard}>
-              <FieldRow label="Clinic" value={pet.vetName} />
-              <FieldRow label="Phone" value={pet.vetPhone} />
-            </Card>
-          </Section>
-        </>
+          ) : null}
+        </View>
       ) : null}
     </Screen>
   );
@@ -143,14 +149,101 @@ export function PetProfileScreen() {
 function FieldRow({ label, value }: { label: string; value?: string | null }) {
   return (
     <View style={styles.fieldRow}>
-      <Text variant="caption" tone="muted" style={styles.fieldLabel}>
+      <Text variant="body" tone="secondary" style={styles.fieldLabel}>
         {label}
       </Text>
-      <Text selectable variant="caption" tone={value ? "secondary" : "muted"} style={styles.fieldValue}>
+      <Text selectable variant="body" tone={value ? "secondary" : "muted"} style={styles.fieldValue}>
         {value || "Not listed"}
       </Text>
     </View>
   );
+}
+
+function MenuRow({
+  icon,
+  title,
+  value,
+}: {
+  icon: "heart" | "info" | "shield" | "user" | "utensils";
+  title: string;
+  value?: string | null;
+}) {
+  return (
+    <Pressable accessibilityRole="button" style={({ pressed }) => [styles.menuRow, pressed && styles.pressedRow]}>
+      <View style={styles.menuIcon}>
+        <Icon color={colors.blackCherry} name={icon} size={18} />
+      </View>
+      <Text variant="body" tone="primary" style={styles.menuTitle}>
+        {title}
+      </Text>
+      {value ? (
+        <Text variant="caption" tone="accent" style={styles.menuValue}>
+          {value}
+        </Text>
+      ) : null}
+      <Icon color={colors.blackCherry} name="chevron-right" size={16} />
+    </Pressable>
+  );
+}
+
+function formatVaccinationStatus(pet: Pet) {
+  if (pet.immunizations && pet.immunizations.length > 0) {
+    return `${pet.immunizations.length} record${pet.immunizations.length === 1 ? "" : "s"}`;
+  }
+
+  return pet.nextImmunizationExpiration ? "Up to date" : pet.vaccinationSummary || "Not listed";
+}
+
+function ImmunizationList({ immunizations }: { immunizations: PetImmunization[] }) {
+  if (immunizations.length === 0) {
+    return <FieldRow label="Records" value={null} />;
+  }
+
+  return (
+    <View style={styles.immunizationList}>
+      {immunizations.map((immunization, index) => (
+        <View key={immunization.id ?? `${immunization.name}-${index}`} style={styles.immunizationRow}>
+          <View style={styles.immunizationIcon}>
+            <Icon color={colors.goldenrod} name="shield" size={15} />
+          </View>
+          <View style={styles.immunizationCopy}>
+            <Text variant="caption" tone="primary">
+              {immunization.name}
+            </Text>
+            <Text selectable variant="caption" tone="secondary">
+              {formatImmunizationDetail(immunization)}
+            </Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function formatImmunizationDetail(immunization: PetImmunization) {
+  const parts = [
+    immunization.expiresDate ? `Expires ${formatIsoDate(immunization.expiresDate)}` : null,
+    immunization.administeredDate ? `Given ${formatIsoDate(immunization.administeredDate)}` : null,
+    immunization.status,
+  ].filter(Boolean);
+
+  return parts.join(" | ") || "No expiration listed";
+}
+
+function formatFeedingSummary(pet: Pet) {
+  if (pet.feedingSchedules && pet.feedingSchedules.length > 0) {
+    return `${pet.feedingSchedules.length} schedule${pet.feedingSchedules.length === 1 ? "" : "s"}`;
+  }
+
+  return pet.feedingType || pet.feedingMethod || "Not listed";
+}
+
+function formatMedicalSummary(pet: Pet) {
+  return pet.medicines || pet.medicationNotes || pet.allergies || "None";
+}
+
+function formatCareSummary(pet: Pet) {
+  return pet.notes || pet.careNote || "Not listed";
 }
 
 function FeedingSchedules({ schedules }: { schedules: PetFeedingSchedule[] }) {
@@ -255,47 +348,117 @@ function formatMedicationDates(startDate: string | null, endDate: string | null)
   return startDate ? `Starts ${formatIsoDate(startDate)}` : `Ends ${formatIsoDate(endDate)}`;
 }
 
+function formatRawValue(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 const styles = StyleSheet.create({
   backButton: {
-    alignSelf: "flex-start",
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    left: spacing.lg,
+    position: "absolute",
+    width: 44,
   },
   badgeRow: {
+    justifyContent: "center",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.xs,
   },
   content: {
-    gap: spacing.lg,
+    gap: 0,
+    paddingHorizontal: 0,
+    paddingTop: 0,
   },
   detailCard: {
     gap: spacing.md,
     padding: spacing.lg,
   },
   fieldLabel: {
-    flex: 0.82,
+    flex: 1,
+    fontWeight: "700",
   },
   fieldRow: {
     alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  fieldValue: {
+    flex: 1.25,
+  },
+  header: {
+    alignItems: "flex-start",
+    backgroundColor: colors.blackCherry,
+    minHeight: 238,
+    paddingHorizontal: spacing.xl,
+  },
+  headerTitle: {
+    alignSelf: "center",
+  },
+  immunizationCopy: {
+    flex: 1,
+    gap: spacing.xxs,
+  },
+  immunizationIcon: {
+    alignItems: "center",
+    backgroundColor: colors.champagne,
+    borderRadius: radius.pill,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  immunizationList: {
+    gap: spacing.sm,
+  },
+  immunizationRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  menuCard: {
+    gap: 0,
+    padding: 0,
+  },
+  menuIcon: {
+    alignItems: "center",
+    width: 34,
+  },
+  menuRow: {
+    alignItems: "center",
     borderBottomColor: colors.creamBorder,
     borderBottomWidth: 1,
     flexDirection: "row",
-    gap: spacing.md,
-    paddingBottom: spacing.sm,
+    gap: spacing.sm,
+    minHeight: 72,
+    paddingHorizontal: spacing.lg,
   },
-  fieldValue: {
-    flex: 1.4,
+  menuTitle: {
+    flex: 1,
+  },
+  menuValue: {
+    maxWidth: 130,
     textAlign: "right",
   },
-  header: {
-    paddingTop: spacing.xs,
-  },
-  heroCard: {
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  heroCopy: {
-    alignItems: "center",
-    gap: spacing.xs,
+  messageWrap: {
+    padding: spacing.xl,
   },
   medicationGroup: {
     gap: spacing.xs,
@@ -309,9 +472,35 @@ const styles = StyleSheet.create({
   petImage: {
     borderColor: colors.goldenrod,
     borderRadius: radius.pill,
-    borderWidth: 2,
-    height: 140,
-    width: 140,
+    borderWidth: 3,
+    height: 190,
+    width: 190,
+  },
+  portraitWrap: {
+    alignItems: "center",
+    marginTop: -96,
+  },
+  pressedRow: {
+    opacity: 0.72,
+  },
+  profileBody: {
+    gap: spacing.xl,
+    paddingBottom: 116,
+    paddingHorizontal: spacing.xl,
+  },
+  rawCard: {
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  rawHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+  },
+  summaryCard: {
+    gap: spacing.md,
+    padding: spacing.xl,
   },
   scheduleCopy: {
     flex: 1,

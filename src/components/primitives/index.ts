@@ -1,4 +1,5 @@
 export { Badge } from "./badge";
+export { BackChevronButton } from "./back-chevron-button";
 export { Button } from "./button";
 export { Card } from "./card";
 export { Icon } from "./icon";

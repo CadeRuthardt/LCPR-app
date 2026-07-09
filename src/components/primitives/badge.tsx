@@ -3,7 +3,7 @@ import { StyleSheet, View } from "react-native";
 import { colors, radius, spacing } from "../../theme";
 import { Text } from "./text";
 
-type BadgeTone = "accent" | "calm" | "attention" | "success";
+type BadgeTone = "accent" | "calm" | "attention" | "success" | "danger" | "info";
 
 type BadgeProps = {
   label: string;
@@ -15,6 +15,8 @@ const badgeStyles: Record<BadgeTone, { backgroundColor: string }> = {
   calm: { backgroundColor: colors.sage },
   attention: { backgroundColor: colors.blush },
   success: { backgroundColor: colors.parchment },
+  danger: { backgroundColor: colors.statusRedSoft },
+  info: { backgroundColor: colors.statusBlueSoft },
 };
 
 export function Badge({ label, tone = "accent" }: BadgeProps) {

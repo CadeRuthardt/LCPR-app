@@ -1,6 +1,5 @@
 import { router, useFocusEffect } from "expo-router";
 import * as React from "react";
-import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Image, ImageBackground, Linking, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -19,7 +18,6 @@ import { getTimeOfDayGreeting } from "@/utils/greeting";
 const logo = require("../../assets/logo.png");
 const heroImageUrl =
   "https://i0.wp.com/lechateaupetresort.com/wp-content/uploads/2025/09/dogs-in-yard.jpg?resize=1024%2C768&ssl=1";
-const releaseToRefreshThreshold = -132;
 const googleReviewLinks = {
   amarillo: "https://g.page/r/CSbeJJMv3RoJEBM/review",
   newBraunfels: "https://g.page/r/CZ2wF44jyrgREBM/review",
@@ -59,14 +57,12 @@ export function HomeScreen() {
     requests: [],
     upcomingReservations: [],
   });
-  const [showRefreshPrompt, setShowRefreshPrompt] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
   const loadHomeData = React.useCallback(async (refreshing = false) => {
     if (refreshing) {
       setIsRefreshing(true);
-      setShowRefreshPrompt(true);
     }
 
     setErrorMessage(null);
@@ -90,7 +86,6 @@ export function HomeScreen() {
       );
     } finally {
       setIsRefreshing(false);
-      setShowRefreshPrompt(false);
     }
   }, []);
 
@@ -106,29 +101,15 @@ export function HomeScreen() {
     void loadHomeData(true);
   }
 
-  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const offsetY = event.nativeEvent.contentOffset.y;
-
-    setShowRefreshPrompt(offsetY <= releaseToRefreshThreshold || isRefreshing);
-  }
-
   return (
     <Screen
       backgroundColor={colors.onyx}
+      clampBottomBounce
       contentStyle={[styles.content, { paddingTop: insets.top + spacing.sm }]}
-      onScroll={handleScroll}
       onRefresh={handleRefresh}
       refreshing={isRefreshing}
       topSafeArea={false}
     >
-      <View style={styles.refreshPromptSlot}>
-        {showRefreshPrompt ? (
-          <View style={styles.refreshPrompt}>
-            <Icon color={colors.goldenrod} name="refresh" size={16} />
-          </View>
-        ) : null}
-      </View>
-
       <View style={styles.logoWrap}>
         <Image source={logo} style={styles.logoImage} />
       </View>
@@ -299,7 +280,7 @@ function handleHomePanelAction(panel: HomePanel) {
   }
 
   if (panel.title === "No reservations booked yet") {
-    router.push("/request-reservation");
+    router.push({ pathname: "/request-reservation", params: { returnTo: "/" } });
     return;
   }
 
@@ -474,17 +455,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     padding: spacing.md,
-  },
-  refreshPrompt: {
-    alignItems: "center",
-    alignSelf: "center",
-    justifyContent: "center",
-    minHeight: 24,
-  },
-  refreshPromptSlot: {
-    alignItems: "center",
-    height: 24,
-    justifyContent: "center",
   },
   liveCard: {
     backgroundColor: colors.richMahogany,

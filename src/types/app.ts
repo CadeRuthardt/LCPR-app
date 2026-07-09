@@ -15,11 +15,13 @@ export type Pet = {
   feedingType?: string | null;
   fixed?: boolean;
   gender?: string | null;
+  immunizations?: PetImmunization[];
   medicationNotes?: string | null;
   medicationSchedules?: PetMedicationSchedule[];
   medicines?: string | null;
   notes?: string | null;
   nextImmunizationExpiration?: string | null;
+  rawData?: Record<string, unknown>;
   source?: "seed" | "gingr";
   species?: string;
   status: "Active" | "Wellness";
@@ -29,6 +31,15 @@ export type Pet = {
   vip?: boolean;
   weight: string;
   imageUrl: string;
+};
+
+export type PetImmunization = {
+  administeredDate: string | null;
+  expiresDate: string | null;
+  id: string | null;
+  name: string;
+  rawData: unknown;
+  status: string | null;
 };
 
 export type PetFeedingSchedule = {
@@ -108,6 +119,8 @@ export type ClientReservationDetail = {
   cancelledBy: string | null;
   checkInAt: string | null;
   checkOutAt: string | null;
+  confirmedAt: string | null;
+  createdAt: string | null;
   createdBy: string | null;
   dateRange: string;
   endDate: string | null;
@@ -124,6 +137,7 @@ export type ClientReservationDetail = {
   notes: string | null;
   petDetails: ReservationDetailPet[];
   precheckCompleted: boolean | null;
+  rawReservations?: Array<Record<string, unknown>>;
   reservationType: string | null;
   services: string | null;
   startDate: string | null;

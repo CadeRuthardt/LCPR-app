@@ -6,6 +6,8 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
+import * as React from "react";
 import type { PropsWithChildren } from "react";
 import type { NativeScrollEvent, NativeSyntheticEvent, StyleProp, ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -14,6 +16,7 @@ import { colors, spacing } from "../../theme";
 
 type ScreenProps = PropsWithChildren<{
   backgroundColor?: string;
+  clampBottomBounce?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   onRefresh?: () => void;
@@ -25,6 +28,7 @@ type ScreenProps = PropsWithChildren<{
 export function Screen({
   backgroundColor = colors.ivory,
   children,
+  clampBottomBounce = false,
   contentStyle,
   onScroll,
   onRefresh,
@@ -32,8 +36,33 @@ export function Screen({
   scroll = true,
   topSafeArea = true,
 }: ScreenProps) {
+  const scrollViewRef = React.useRef<ScrollView>(null);
   const screenStyle = [styles.screen, { backgroundColor }];
   const safeAreaEdges = topSafeArea ? (["top"] as const) : ([] as const);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      scrollViewRef.current?.scrollTo({ animated: false, y: 0 });
+    }, []),
+  );
+
+  const handleScroll = React.useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      onScroll?.(event);
+
+      if (!clampBottomBounce) {
+        return;
+      }
+
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const maxOffsetY = Math.max(0, contentSize.height - layoutMeasurement.height);
+
+      if (contentOffset.y > maxOffsetY + 1) {
+        scrollViewRef.current?.scrollTo({ animated: false, y: maxOffsetY });
+      }
+    },
+    [clampBottomBounce, onScroll],
+  );
 
   if (!scroll) {
     return (
@@ -50,12 +79,13 @@ export function Screen({
         style={styles.screen}
       >
         <ScrollView
+          ref={scrollViewRef}
           automaticallyAdjustKeyboardInsets
           contentContainerStyle={[styles.content, contentStyle]}
           contentInsetAdjustmentBehavior="never"
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
-          onScroll={onScroll}
+          onScroll={handleScroll}
           scrollEventThrottle={16}
           refreshControl={
             onRefresh ? (

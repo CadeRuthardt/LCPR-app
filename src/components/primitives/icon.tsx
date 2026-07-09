@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import {
   faBell,
   faCalendarDays,
+  faChevronLeft,
   faCheck,
   faChevronRight,
   faCircleInfo,
@@ -32,6 +33,7 @@ export type IconName =
   | "bell"
   | "calendar"
   | "check"
+  | "chevron-left"
   | "chevron-right"
   | "clock"
   | "ellipsis"
@@ -64,6 +66,7 @@ const icons: Record<IconName, IconDefinition> = {
   bell: faBell,
   calendar: faCalendarDays,
   check: faCheck,
+  "chevron-left": faChevronLeft,
   "chevron-right": faChevronRight,
   clock: faClock,
   ellipsis: faEllipsis,

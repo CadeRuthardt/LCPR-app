@@ -107,6 +107,8 @@ export const resortImages = {
     "https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?auto=format&fit=crop&w=1200&q=85",
   loginHero:
     "https://lechateaupetresort.com/wp-content/uploads/2025/10/amarillo.webp",
+  wichitaFallsHero:
+    "https://lechateaupetresort.com/wp-content/uploads/2025/09/Screenshot-2025-09-12-at-1.21.27-PM.png",
   stayHero:
     "https://images.unsplash.com/photo-1507146426996-ef05306b995a?auto=format&fit=crop&w=1200&q=85",
   playYard:

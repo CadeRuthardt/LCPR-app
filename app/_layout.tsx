@@ -53,7 +53,9 @@ function AuthGate() {
   const segments = useSegments();
   const activeRoute = segments[0] ?? "index";
   const statusBarStyle: StatusBarStyle =
-    !isSignedIn || activeRoute === "index" || activeRoute === "profile" ? "light" : "dark";
+    !isSignedIn || activeRoute === "index" || activeRoute === "profile" || activeRoute === "pet-profile"
+      ? "light"
+      : "dark";
 
   if (isLoading) {
     return (
