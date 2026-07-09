@@ -17,7 +17,7 @@ The app uses five primary tabs:
 
 1. Home
 2. Pets
-3. Stays
+3. Reservations
 4. Explore
 5. Profile
 
@@ -47,14 +47,13 @@ Use client-facing language.
 
 Preferred:
 
-- Stays
+- Reservations
 - Explore the Resort
-- Request a Stay
+- Request a Reservation
 - Preparing for Your Visit
 
 Avoid:
 
-- Reservations
 - Kennels
 - Boarding Units
 - Reservation Types
@@ -77,11 +76,11 @@ It should answer:
 ## Home Screen Sections
 
 - Greeting
-- Upcoming Stay
-- Current Stay
+- Upcoming Reservation
+- Current Reservation
 - Stay Updates
 - Vaccination Alerts
-- Request a Stay CTA
+- Request a Reservation CTA
 - Live Cameras CTA
 - Featured Service
 - Resort Announcement
@@ -91,14 +90,14 @@ It should answer:
 
 ```text
 Home
-├── Upcoming Stay Card
-│   └── Stay Details
+├── Upcoming Reservation Card
+│   └── Reservation Details
 │       ├── Preparing for Your Visit
 │       ├── Vaccination Status
 │       ├── Deposit Status
 │       └── Contact Resort
 │
-├── Current Stay Card
+├── Current Reservation Card
 │   └── Current Stay
 │       ├── Stay Timeline
 │       ├── Live Cameras
@@ -113,7 +112,7 @@ Home
 ├── Vaccination Alert
 │   └── Upload Vaccination Record
 │
-├── Request a Stay
+├── Request a Reservation
 │   └── Request Flow
 │
 ├── Live Cameras
@@ -165,24 +164,24 @@ Pets
 - Feeding Instructions
 - Medication Instructions
 - Care Notes
-- Upcoming Stay
-- Past Stays
+- Upcoming Reservation
+- Past Reservations
 
 ---
 
-# Tab 3: Stays
+# Tab 3: Reservations
 
 ## Purpose
 
-The Stays tab replaces traditional reservation terminology with hospitality language.
+The Reservations tab gives clients a clear, familiar place to view upcoming, current, past, and requested reservations without exposing Gingr's internal reservation types.
 
-It includes current, upcoming, past, and requested stays.
+It includes current, upcoming, past, and requested reservations.
 
-## Stays Navigation
+## Reservations Navigation
 
 ```text
-Stays
-├── Current Stay
+Reservations
+├── Current Reservation
 │   └── Current Stay Detail
 │       ├── Stay Timeline
 │       ├── Photos
@@ -190,34 +189,34 @@ Stays
 │       ├── Pickup Information
 │       └── Contact Resort
 │
-├── Upcoming Stays
-│   └── Stay Details
+├── Upcoming Reservations
+│   └── Reservation Details
 │       ├── Preparing for Your Visit
 │       ├── Pet Details
 │       ├── Vaccination Status
 │       ├── Deposit Status
 │       └── Contact Resort
 │
-├── Stay Requests
+├── Reservation Requests
 │   └── Request Status Detail
 │       ├── Submitted Details
 │       ├── Status Timeline
 │       └── Contact Resort
 │
-├── Past Stays
+├── Past Reservations
 │   └── Stay History Detail
 │       ├── Photos
 │       ├── Timeline
 │       ├── Report Card
-│       └── Rebook Similar Stay
+│       └── Request Similar Reservation
 │
-└── Request a Stay
+└── Request a Reservation
     └── Request Flow
 ```
 
 ---
 
-# Request a Stay Flow
+# Request a Reservation Flow
 
 ## Purpose
 
@@ -230,7 +229,7 @@ The app should never imply instant confirmation.
 ## Flow
 
 ```text
-Request a Stay
+Request a Reservation
 ├── Step 1: Select Pet(s)
 ├── Step 2: Choose Location
 ├── Step 3: Select Dates
@@ -392,7 +391,7 @@ Empty states should feel helpful, not sterile.
 
 Examples:
 
-## No Upcoming Stay
+## No Upcoming Reservation
 
 Primary message:
 
@@ -400,7 +399,7 @@ Primary message:
 
 CTA:
 
-- Request a Stay
+- Request a Reservation
 
 Secondary action:
 
@@ -424,9 +423,9 @@ Pet records are ultimately managed through Gingr/reception.
 
 Hide live stay features and promote:
 
-- Request a Stay
+- Request a Reservation
 - Explore the Resort
-- View Past Stays
+- View Past Reservations
 
 ---
 
@@ -435,11 +434,11 @@ Hide live stay features and promote:
 Future deep links should support:
 
 ```text
-/stays/:id
+/reservations/:id
 /pets/:id
 /explore/accommodations
 /explore/accommodations/dog/classic/champion
-/request-stay
+/request-reservation
 /cameras
 /profile/notifications
 ```

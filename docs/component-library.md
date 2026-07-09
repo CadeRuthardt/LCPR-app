@@ -140,7 +140,7 @@ Reservation requests should be built from these reusable controls.
 
 # Hospitality Components
 
-## StayCard
+## ReservationCard
 
 Displays:
 
@@ -235,7 +235,7 @@ Examples:
 # Profile Components
 
 - PetHeader
-- StayHeader
+- ReservationHeader
 - ProfileHeader
 - DetailRow
 - InfoList

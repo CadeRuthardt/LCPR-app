@@ -1,20 +1,22 @@
 import { StyleSheet, View } from "react-native";
 import type { PropsWithChildren, ReactNode } from "react";
+import type { StyleProp, ViewStyle } from "react-native";
 
 import { spacing } from "../../theme";
 import { Text } from "./text";
 
 type SectionProps = PropsWithChildren<{
-  title?: string;
-  subtitle?: string;
   action?: ReactNode;
+  headerStyle?: StyleProp<ViewStyle>;
+  subtitle?: string;
+  title?: string;
 }>;
 
-export function Section({ action, children, subtitle, title }: SectionProps) {
+export function Section({ action, children, headerStyle, subtitle, title }: SectionProps) {
   return (
     <View style={styles.section}>
       {(title || subtitle || action) && (
-        <View style={styles.header}>
+        <View style={[styles.header, headerStyle]}>
           <View style={styles.copy}>
             {title ? <Text variant="title">{title}</Text> : null}
             {subtitle ? (

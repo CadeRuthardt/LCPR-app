@@ -76,8 +76,8 @@ The client app should never become an employee application.
 
 ## Home
 - Personalized greeting
-- Upcoming stay summary
-- Current stay summary
+- Upcoming reservation summary
+- Current reservation summary
 - Vaccination alerts
 - Featured content
 
@@ -86,14 +86,14 @@ The client app should never become an employee application.
 - Vaccination status
 - Feeding instructions
 - Medication instructions
-- Stay history
+- Reservation history
 
-## Stays
-- Current stays
-- Upcoming stays
-- Past stays
+## Reservations
+- Current reservations
+- Upcoming reservations
+- Past reservations
 - Reservation requests
-- Stay status
+- Reservation status
 
 ## Explore
 - Accommodations
@@ -117,11 +117,11 @@ The client app should never become an employee application.
 
 # Reservation Experience
 
-Clients submit requests—not reservations.
+Clients submit reservation requests, not confirmed reservations.
 
 Reception reviews requests and manually creates reservations in Gingr.
 
-The client experience should resemble requesting a stay at a luxury resort rather than filling out kennel software forms.
+The client experience should resemble requesting a reservation at a luxury resort rather than filling out kennel software forms.
 
 Clients select an experience:
 

@@ -58,7 +58,7 @@ Use conversational language.
 
 Examples:
 
-- "Request a Stay"
+- "Request a Reservation"
 - "Explore the Resort"
 - "Preparing for Your Visit"
 

@@ -87,9 +87,9 @@ Once information exists in Gingr, Gingr becomes the source of truth.
 
 # Reservation Philosophy
 
-Clients should never think in terms of Gingr reservation types.
+Clients should never think in terms of Gingr reservation types or internal scheduling records.
 
-Instead, the app guides the guest through requesting a stay.
+Instead, the app guides the guest through requesting a reservation with Le Chateau.
 
 Example flow:
 
@@ -121,8 +121,8 @@ A living dashboard.
 
 Examples:
 
-- Upcoming Stay
-- Current Stay
+- Upcoming Reservation
+- Current Reservation
 - Stay Updates
 - Live Cameras (only during active stays)
 - Vaccination Alerts
@@ -133,12 +133,12 @@ Examples:
 
 Read-only information from Gingr.
 
-## Stays
+## Reservations
 
-Upcoming stays
-Past stays
-Current stay
-Request a Stay
+Upcoming reservations
+Past reservations
+Current reservation
+Request a Reservation
 
 ## Explore
 
@@ -258,7 +258,7 @@ Primary Navigation:
 
 - Home
 - Pets
-- Stays
+- Reservations
 - Explore
 - Profile
 
@@ -299,7 +299,7 @@ The backend should avoid duplicating Gingr data whenever possible.
 - Authentication
 - Home
 - Pets
-- Stays
+- Reservations
 - Explore
 - Profile
 - Read-only Gingr integration

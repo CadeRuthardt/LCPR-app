@@ -190,8 +190,8 @@ Every empty state should encourage the next action.
 
 Examples:
 
-No Upcoming Stay
-→ Request a Stay
+No Upcoming Reservation
+→ Request a Reservation
 
 No Photos
 → Your pet's memories will appear here after their next visit.

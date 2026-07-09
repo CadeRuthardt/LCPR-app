@@ -50,8 +50,8 @@ Launch a premium client companion app.
 
 ### Home
 - Personalized dashboard
-- Upcoming stay summary
-- Current stay summary
+- Upcoming reservation summary
+- Current reservation summary
 - Vaccination reminders
 - Featured content
 
@@ -60,12 +60,12 @@ Launch a premium client companion app.
 - Vaccination status
 - Feeding instructions
 - Medication instructions
-- Stay history
+- Reservation history
 
-### Stays
-- Current stays
-- Upcoming stays
-- Past stays
+### Reservations
+- Current reservations
+- Upcoming reservations
+- Past reservations
 - Reservation requests
 - Request status tracking
 

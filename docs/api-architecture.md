@@ -49,7 +49,7 @@ All requests flow through the LCPR Backend.
 - Medication instructions
 - Payments
 - Deposits
-- Stay history
+- Reservation history
 - Operational notes (when applicable)
 
 These records are read from Gingr and never permanently duplicated.
@@ -142,7 +142,7 @@ Example endpoint groups:
 
 - /auth
 - /pets
-- /stays
+- /reservations
 - /reservation-requests
 - /vaccinations
 - /notifications

@@ -1,4 +1,5 @@
 import { StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button, Icon, Screen, Section, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
@@ -21,10 +22,11 @@ const supportRows: Array<{ icon: IconName; label: string }> = [
 
 export function ProfileScreen() {
   const { signOut } = useMockSession();
+  const insets = useSafeAreaInsets();
 
   return (
-    <Screen contentStyle={styles.content}>
-      <View style={styles.profileHero}>
+    <Screen contentStyle={styles.content} topSafeArea={false}>
+      <View style={[styles.profileHero, { paddingTop: insets.top + spacing.xxl }]}>
         <Text variant="display" tone="accent" style={styles.profileMonogram}>
           SC
         </Text>
@@ -35,16 +37,23 @@ export function ProfileScreen() {
           {guest.email}
         </Text>
       </View>
-      <Section title="Account">
-        {accountRows.map((item) => (
-          <ProfileRow key={item.label} icon={item.icon} label={item.label} />
-        ))}
-      </Section>
-      <Section title="Support">
-        {supportRows.map((item) => (
-          <ProfileRow key={item.label} icon={item.icon} label={item.label} />
-        ))}
-      </Section>
+
+      <View style={styles.sectionWrap}>
+        <Section title="Account" headerStyle={styles.sectionHeader}>
+          {accountRows.map((item) => (
+            <ProfileRow key={item.label} icon={item.icon} label={item.label} />
+          ))}
+        </Section>
+      </View>
+
+      <View style={styles.sectionWrap}>
+        <Section title="Support" headerStyle={styles.sectionHeader}>
+          {supportRows.map((item) => (
+            <ProfileRow key={item.label} icon={item.icon} label={item.label} />
+          ))}
+        </Section>
+      </View>
+
       <Button
         icon="log-out"
         onPress={signOut}
@@ -72,6 +81,7 @@ function ProfileRow({ icon, label }: { icon: IconName; label: string }) {
 
 const styles = StyleSheet.create({
   content: {
+    gap: 0,
     paddingHorizontal: 0,
     paddingTop: 0,
   },
@@ -80,7 +90,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.burgundyDeep,
     gap: spacing.sm,
     paddingBottom: spacing.xxl,
-    paddingTop: spacing.display,
   },
   profileMonogram: {
     borderColor: colors.goldenrod,
@@ -91,6 +100,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     textAlign: "center",
     width: 104,
+  },
+  sectionWrap: {
+    paddingTop: spacing.xl,
+  },
+  sectionHeader: {
+    paddingHorizontal: spacing.xl,
   },
   profileRow: {
     alignItems: "center",
@@ -108,5 +123,6 @@ const styles = StyleSheet.create({
   },
   logoutButton: {
     marginHorizontal: spacing.xl,
+    marginTop: spacing.xl,
   },
 });

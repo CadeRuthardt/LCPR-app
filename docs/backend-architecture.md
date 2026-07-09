@@ -242,7 +242,7 @@ Use cache only to improve speed and reliability.
 Cache examples:
 
 - Pet summaries
-- Upcoming stay summaries
+- Upcoming reservation summaries
 - Vaccination status
 - Explore content
 
@@ -261,7 +261,7 @@ Rules:
 - Never expose SMS/email provider keys to the mobile app.
 - Never expose camera credentials to the mobile app.
 - Use server-side authorization checks for every client-owned resource.
-- A user should only see their own pets, stays, photos, and documents.
+- A user should only see their own pets, reservations, photos, and documents.
 - Use signed URLs for private files when needed.
 
 ---
