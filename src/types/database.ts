@@ -22,24 +22,46 @@ export type Phase1SeedPet = {
 };
 
 export type ReservationRequest = {
+  amenity_package: string | null;
+  authorized_pickup: string | null;
   created_at: string;
   end_date: string;
+  end_time: string | null;
+  enrichment_enabled: boolean;
+  enrichment_frequency: string | null;
   experience: string;
   id: string;
+  location: string | null;
   notes: string | null;
   optional_services: string[];
+  reservation_type: string | null;
   selected_pet_ids: string[];
+  spa_service: string | null;
+  spa_upgrades: string[];
   start_date: string;
+  start_time: string | null;
   status: "submitted" | "under_review" | "action_required" | "confirmed" | "cancelled";
+  suite_size: string | null;
   updated_at: string;
   user_id: string;
 };
 
 export type ReservationRequestInsert = {
+  amenity_package?: string | null;
+  authorized_pickup?: string | null;
   end_date: string;
+  end_time?: string | null;
+  enrichment_enabled?: boolean;
+  enrichment_frequency?: string | null;
   experience: string;
+  location?: string | null;
   notes?: string | null;
   optional_services?: string[];
+  reservation_type?: string | null;
   selected_pet_ids: string[];
+  spa_service?: string | null;
+  spa_upgrades?: string[];
   start_date: string;
+  start_time?: string | null;
+  suite_size?: string | null;
 };

@@ -13,11 +13,10 @@ import {
 } from "react-native";
 
 import { Button, Card, Icon, Screen, Text, TextField } from "@/components/primitives";
-import { createReservationRequest, getCurrentClientPets } from "@/services/client-data";
+import { createReservationRequest, getCurrentClientPetsForApp } from "@/services/client-data";
 import { colors, radius, spacing } from "@/theme";
 import type { Pet } from "@/types/app";
 import type { ReservationRequest } from "@/types/database";
-import { mapSeedPetToPet } from "@/utils/mappers";
 
 const steps = ["Pets", "Location", "Type", "Dates", "Experience", "Details"] as const;
 const locationOptions = ["Amarillo", "Wichita Falls", "New Braunfels"];
@@ -79,10 +78,10 @@ export function RequestReservationScreen() {
   React.useEffect(() => {
     let isMounted = true;
 
-    getCurrentClientPets()
-      .then((seedPets) => {
+    getCurrentClientPetsForApp()
+      .then((clientPets) => {
         if (isMounted) {
-          setPets(seedPets.map(mapSeedPetToPet));
+          setPets(clientPets);
         }
       })
       .catch((error: unknown) => {
@@ -276,35 +275,24 @@ export function RequestReservationScreen() {
     setIsSubmitting(true);
 
     try {
-      const requestNotes = [
-        `Location: ${location}`,
-        `Type: ${reservationType}`,
-        `Preferred arrival: ${formatDisplayDate(startDate)} at ${formatDisplayTime(startTime)}`,
-        `Preferred pickup: ${formatDisplayDate(endDate)} at ${formatDisplayTime(endTime)}`,
-        `Amenity package: ${amenityPackage}`,
-        `Preferred suite size: ${suiteSize}`,
-        `Enrichment: ${
-          enrichmentEnabled ? `Yes, ${enrichmentFrequency.toLowerCase()}` : "No"
-        }`,
-        selectedSpaService ? `Spa service: ${selectedSpaService}` : "",
-        selectedSpaUpgrades.size ? `Spa upgrades: ${Array.from(selectedSpaUpgrades).join(", ")}` : "",
-        authorizedPickup.trim() ? `Authorized pickup: ${authorizedPickup.trim()}` : "",
-        notes.trim(),
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-
       const request = await createReservationRequest({
+        amenity_package: amenityPackage,
+        authorized_pickup: authorizedPickup.trim() || null,
         end_date: endDate,
+        end_time: endTime,
+        enrichment_enabled: enrichmentEnabled,
+        enrichment_frequency: enrichmentEnabled ? enrichmentFrequency : null,
         experience: `${reservationType} - ${amenityPackage}`,
-        notes: requestNotes || null,
-        optional_services: [
-          selectedSpaService,
-          ...Array.from(selectedSpaUpgrades),
-          enrichmentEnabled ? `Enrichment: ${enrichmentFrequency}` : "",
-        ].filter(Boolean),
+        location,
+        notes: notes.trim() || null,
+        optional_services: [],
+        reservation_type: reservationType,
         selected_pet_ids: Array.from(selectedPetIds),
+        spa_service: selectedSpaService || null,
+        spa_upgrades: Array.from(selectedSpaUpgrades),
         start_date: startDate,
+        start_time: startTime,
+        suite_size: suiteSize,
       });
       setCreatedRequest(request);
     } catch (error) {

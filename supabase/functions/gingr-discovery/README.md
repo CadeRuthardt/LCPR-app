@@ -27,6 +27,7 @@ The function requires a signed-in Supabase user and supports:
 - `reservation-types`
 - `services-by-type`
 - `current-owner`
+- `current-pets`
 - `current-client-snapshot`
 
 `current-owner` and `current-client-snapshot` use the signed-in user's Supabase email. Do not pass arbitrary client emails from the app.

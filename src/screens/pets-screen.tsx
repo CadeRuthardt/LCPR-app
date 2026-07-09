@@ -3,9 +3,8 @@ import * as React from "react";
 
 import { PetCard } from "@/components/composites";
 import { Button, Screen, Section, Text } from "@/components/primitives";
-import { getCurrentClientPets } from "@/services/client-data";
+import { getCurrentClientPetsForApp } from "@/services/client-data";
 import type { Pet } from "@/types/app";
-import { mapSeedPetToPet } from "@/utils/mappers";
 
 import { ScreenHeader } from "./screen-header";
 
@@ -19,10 +18,10 @@ export function PetsScreen() {
   React.useEffect(() => {
     let isMounted = true;
 
-    getCurrentClientPets()
-      .then((seedPets) => {
+    getCurrentClientPetsForApp()
+      .then((clientPets) => {
         if (isMounted) {
-          setPets(seedPets.map(mapSeedPetToPet));
+          setPets(clientPets);
           setErrorMessage(null);
         }
       })
@@ -64,7 +63,7 @@ export function PetsScreen() {
         {errorMessage ? <Text tone="secondary">{errorMessage}</Text> : null}
         {!isLoading && !errorMessage && pets.length === 0 ? (
           <Text tone="secondary">
-            Your pet profiles will appear here after your Phase 1 account is seeded.
+            Your pet profiles will appear here once we match your Le Chateau account.
           </Text>
         ) : null}
         {pets.map((pet) => {

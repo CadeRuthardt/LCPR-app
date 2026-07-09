@@ -5,6 +5,7 @@ export type GingrDiscoveryAction =
   | "reservation-types"
   | "services-by-type"
   | "current-owner"
+  | "current-pets"
   | "current-client-snapshot";
 
 export type GingrDiscoveryRequest = {
@@ -16,6 +17,27 @@ export type GingrDiscoveryRequest = {
 export type GingrDiscoveryResponse<T = unknown> = {
   action: GingrDiscoveryAction;
   data: T;
+};
+
+export type GingrPet = {
+  age: string;
+  birthday: string | null;
+  breed: string;
+  gender: string | null;
+  id: string;
+  imageUrl: string | null;
+  name: string;
+  nextImmunizationExpiration: string | null;
+  source: "gingr";
+  species: string;
+  status: "Active" | "Checked In";
+  vaccinationSummary: string;
+  weight: string;
+};
+
+export type CurrentGingrPetsResponse = {
+  ownerId: string | null;
+  pets: GingrPet[];
 };
 
 export async function runGingrDiscovery<T = unknown>(request: GingrDiscoveryRequest) {
@@ -30,4 +52,12 @@ export async function runGingrDiscovery<T = unknown>(request: GingrDiscoveryRequ
   }
 
   return data;
+}
+
+export async function getCurrentGingrPets() {
+  const response = await runGingrDiscovery<CurrentGingrPetsResponse>({
+    action: "current-pets",
+  });
+
+  return response?.data?.pets ?? [];
 }

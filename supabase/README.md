@@ -58,6 +58,7 @@ Supported discovery actions:
 - `reservation-types`
 - `services-by-type`
 - `current-owner`
+- `current-pets`
 - `current-client-snapshot`
 
 Client-specific lookups use the signed-in Supabase user's email.

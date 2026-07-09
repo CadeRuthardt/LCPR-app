@@ -1,8 +1,11 @@
-import { StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button, Icon, Screen, Section, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
+import { runGingrDiscovery } from "@/services/gingr";
+import type { GingrDiscoveryAction } from "@/services/gingr";
 import { colors, radius, spacing } from "@/theme";
 import { useSession } from "@/utils/session";
 
@@ -19,12 +22,43 @@ const supportRows: Array<{ icon: IconName; label: string }> = [
   { icon: "info", label: "About Le Chateau" },
 ];
 
+const gingrDebugActions: Array<{
+  action: GingrDiscoveryAction;
+  label: string;
+}> = [
+  { action: "locations", label: "Test Locations" },
+  { action: "reservation-types", label: "Test Reservation Types" },
+  { action: "current-owner", label: "Test Current Owner" },
+  { action: "current-pets", label: "Test Current Pets" },
+  { action: "current-client-snapshot", label: "Test Current Snapshot" },
+];
+
 export function ProfileScreen() {
   const { client, signOut, user } = useSession();
   const insets = useSafeAreaInsets();
   const displayName = client?.display_name ?? "Le Chateau Guest";
   const email = client?.email ?? user?.email ?? "";
   const initials = getInitials(displayName);
+  const [debugAction, setDebugAction] = useState<GingrDiscoveryAction | null>(null);
+  const [debugError, setDebugError] = useState<string | null>(null);
+  const [debugResponse, setDebugResponse] = useState<string | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  async function runDebugAction(action: GingrDiscoveryAction) {
+    setDebugAction(action);
+    setDebugError(null);
+    setDebugResponse(null);
+    setDebugLoading(true);
+
+    try {
+      const response = await runGingrDiscovery({ action });
+      setDebugResponse(formatDebugResponse(response));
+    } catch (error) {
+      setDebugError(formatDebugError(error));
+    } finally {
+      setDebugLoading(false);
+    }
+  }
 
   return (
     <Screen contentStyle={styles.content} topSafeArea={false}>
@@ -56,6 +90,57 @@ export function ProfileScreen() {
         </Section>
       </View>
 
+      <View style={styles.debugPanel}>
+        <View style={styles.debugHeader}>
+          <View>
+            <Text variant="heading" tone="primary">
+              Gingr Debug
+            </Text>
+            <Text variant="caption" tone="muted">
+              Temporary read-only discovery tools
+            </Text>
+          </View>
+          <Icon color={colors.goldenrod} name="info" size={20} />
+        </View>
+
+        <View style={styles.debugButtons}>
+          {gingrDebugActions.map((item) => (
+            <Button
+              key={item.action}
+              disabled={debugLoading}
+              onPress={() => {
+                void runDebugAction(item.action);
+              }}
+              title={item.label}
+              variant={debugAction === item.action ? "primary" : "secondary"}
+              style={styles.debugButton}
+            />
+          ))}
+        </View>
+
+        {debugLoading ? (
+          <Text variant="caption" tone="muted" style={styles.debugStatus}>
+            Calling Gingr discovery...
+          </Text>
+        ) : null}
+
+        {debugError ? (
+          <View style={styles.debugError}>
+            <Text variant="caption" tone="brand">
+              {debugError}
+            </Text>
+          </View>
+        ) : null}
+
+        {debugResponse ? (
+          <ScrollView style={styles.debugOutput} nestedScrollEnabled>
+            <Text selectable variant="caption" tone="secondary" style={styles.debugCode}>
+              {debugResponse}
+            </Text>
+          </ScrollView>
+        ) : null}
+      </View>
+
       <Button
         icon="log-out"
         onPress={() => {
@@ -79,6 +164,22 @@ function getInitials(displayName: string) {
     .toUpperCase();
 
   return initials || "LC";
+}
+
+function formatDebugResponse(value: unknown) {
+  return JSON.stringify(value, null, 2);
+}
+
+function formatDebugError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  return "Gingr discovery request failed.";
 }
 
 function ProfileRow({ icon, label }: { icon: IconName; label: string }) {
@@ -140,5 +241,48 @@ const styles = StyleSheet.create({
   logoutButton: {
     marginHorizontal: spacing.xl,
     marginTop: spacing.xl,
+  },
+  debugPanel: {
+    backgroundColor: colors.porcelain,
+    borderColor: colors.creamBorder,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.xl,
+    padding: spacing.lg,
+  },
+  debugHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  debugButtons: {
+    gap: spacing.sm,
+  },
+  debugButton: {
+    minHeight: 44,
+  },
+  debugStatus: {
+    textAlign: "center",
+  },
+  debugError: {
+    backgroundColor: colors.blush,
+    borderColor: colors.creamBorder,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: spacing.md,
+  },
+  debugOutput: {
+    backgroundColor: colors.linen,
+    borderColor: colors.creamBorder,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    maxHeight: 260,
+    padding: spacing.md,
+  },
+  debugCode: {
+    fontFamily: "Courier",
   },
 });

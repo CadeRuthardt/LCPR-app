@@ -3,6 +3,7 @@ type DiscoveryAction =
   | "reservation-types"
   | "services-by-type"
   | "current-owner"
+  | "current-pets"
   | "current-client-snapshot";
 
 type DiscoveryRequest = {
@@ -91,6 +92,13 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (action === "current-pets") {
+      return jsonResponse({
+        action,
+        data: await buildCurrentPets(gingrBaseUrl, gingrApiKey, authResult.user),
+      });
+    }
+
     if (action === "current-client-snapshot") {
       return jsonResponse({
         action,
@@ -101,7 +109,7 @@ Deno.serve(async (request) => {
     return jsonResponse(
       {
         error:
-          "Unsupported discovery action. Use locations, reservation-types, services-by-type, current-owner, or current-client-snapshot.",
+          "Unsupported discovery action. Use locations, reservation-types, services-by-type, current-owner, current-pets, or current-client-snapshot.",
       },
       400,
     );
@@ -154,6 +162,17 @@ async function getAuthenticatedUser(request: Request): Promise<
   return { user };
 }
 
+async function buildCurrentPets(baseUrl: string, apiKey: string, user: AuthUser) {
+  const owner = await findOwnerByEmail(baseUrl, apiKey, user);
+  const ownerData = unwrapGingrData<Record<string, unknown>>(owner);
+  const animals = Array.isArray(ownerData?.animals) ? ownerData.animals : [];
+
+  return {
+    ownerId: readString(ownerData, "id"),
+    pets: animals.map(normalizeAnimal).filter(Boolean),
+  };
+}
+
 async function buildCurrentClientSnapshot(
   baseUrl: string,
   apiKey: string,
@@ -178,6 +197,126 @@ async function buildCurrentClientSnapshot(
     owner,
     reservations,
   };
+}
+
+function normalizeAnimal(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const animal = value as Record<string, unknown>;
+  const id = readString(animal, "a_id") ?? readString(animal, "id");
+  const name = readString(animal, "animal_name") ?? readString(animal, "name");
+
+  if (!id || !name) {
+    return null;
+  }
+
+  const birthdaySeconds = readNumber(animal, "birthday");
+  const immunizationExpirationSeconds = readNumber(animal, "next_immunization_expiration");
+  const checkedInReservationId = readString(animal, "checked_in_r_id");
+
+  return {
+    id,
+    name,
+    breed: readString(animal, "breed_name") ?? "Breed not listed",
+    species: readString(animal, "species_name") ?? "Pet",
+    gender: readString(animal, "gender"),
+    birthday: birthdaySeconds ? secondsToIsoDate(birthdaySeconds) : null,
+    age: birthdaySeconds ? formatAgeFromSeconds(birthdaySeconds) : "Age not listed",
+    weight: formatWeight(readString(animal, "animal_weight") ?? readString(animal, "weight")),
+    imageUrl: readString(animal, "image"),
+    vaccinationSummary: immunizationExpirationSeconds
+      ? `Vaccinations current through ${formatDateFromSeconds(immunizationExpirationSeconds)}`
+      : "Vaccination status not listed",
+    nextImmunizationExpiration:
+      immunizationExpirationSeconds ? secondsToIsoDate(immunizationExpirationSeconds) : null,
+    status: checkedInReservationId ? "Checked In" : "Active",
+    source: "gingr",
+  };
+}
+
+function unwrapGingrData<T>(value: unknown): T | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const data = record.data;
+
+  if (data && typeof data === "object") {
+    return data as T;
+  }
+
+  return record as T;
+}
+
+function readString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  return null;
+}
+
+function readNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : null;
+  }
+
+  return null;
+}
+
+function formatWeight(value: string | null) {
+  if (!value) {
+    return "Weight not listed";
+  }
+
+  return value.toLowerCase().includes("lb") ? value : `${value} lbs`;
+}
+
+function formatAgeFromSeconds(seconds: number) {
+  const birthday = new Date(seconds * 1000);
+  const today = new Date();
+  let years = today.getFullYear() - birthday.getFullYear();
+  const hasBirthdayPassed =
+    today.getMonth() > birthday.getMonth() ||
+    (today.getMonth() === birthday.getMonth() && today.getDate() >= birthday.getDate());
+
+  if (!hasBirthdayPassed) {
+    years -= 1;
+  }
+
+  if (years <= 0) {
+    return "Under 1 year";
+  }
+
+  return years === 1 ? "1 year" : `${years} years`;
+}
+
+function secondsToIsoDate(seconds: number) {
+  return new Date(seconds * 1000).toISOString().slice(0, 10);
+}
+
+function formatDateFromSeconds(seconds: number) {
+  return new Date(seconds * 1000).toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 async function findOwnerByEmail(baseUrl: string, apiKey: string, user: AuthUser) {
