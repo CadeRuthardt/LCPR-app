@@ -14,15 +14,20 @@ import {
 
 import { Button, Card, Icon, Screen, Text, TextField } from "@/components/primitives";
 import { createReservationRequest, getCurrentClientPetsForApp } from "@/services/client-data";
+import {
+  getGingrReservationRequestCatalog,
+  type GingrReservationRequestCatalog,
+} from "@/services/gingr";
 import { colors, radius, spacing } from "@/theme";
 import type { Pet } from "@/types/app";
 import type { ReservationRequest } from "@/types/database";
 
 const steps = ["Pets", "Location", "Type", "Dates", "Experience", "Details"] as const;
-const locationOptions = ["Amarillo", "Wichita Falls", "New Braunfels"];
-const reservationTypeOptions = ["Boarding", "Daycare", "Spa"];
-const amenityPackages = ["Classic", "Premium", "Platinum VIP"];
-const suiteSizes = ["Champion (4x8)", "Olympian (6x8)", "Royal (8x8)", "Chateau (10x8)"];
+const fallbackLocationOptions = ["Amarillo", "Wichita Falls", "New Braunfels"];
+const fallbackReservationTypeOptions = ["Boarding", "Daycare", "Spa"];
+const dogAmenityPackages = ["Classic", "Premium", "Platinum VIP"];
+const dogSuiteSizes = ["Champion (4x8)", "Olympian (6x8)", "Royal (8x8)", "Chateau (10x8)"];
+const catAccommodationOptions = ["Condo", "Penthouse", "Villa"];
 const enrichmentFrequencies = ["Daily", "Every other day"];
 const spaServices = ["Rapid Bath", "BBB", "PPP"];
 const timeOptions = buildTimeOptions();
@@ -41,6 +46,8 @@ const spaUpgrades = [
 ];
 
 type RequestStep = (typeof steps)[number];
+type PetSpeciesKind = "cat" | "dog" | "mixed" | "unknown";
+type ReservationTypeOption = (typeof fallbackReservationTypeOptions)[number];
 
 export function RequestReservationScreen() {
   const params = useLocalSearchParams<{ petIds?: string }>();
@@ -60,23 +67,62 @@ export function RequestReservationScreen() {
   const [enrichmentFrequency, setEnrichmentFrequency] = React.useState(enrichmentFrequencies[0]);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [exitConfirmVisible, setExitConfirmVisible] = React.useState(false);
-  const [location, setLocation] = React.useState(locationOptions[0]);
-  const [amenityPackage, setAmenityPackage] = React.useState(amenityPackages[0]);
+  const [requestCatalog, setRequestCatalog] =
+    React.useState<GingrReservationRequestCatalog | null>(null);
+  const [locationOptions, setLocationOptions] = React.useState(fallbackLocationOptions);
+  const [location, setLocation] = React.useState(fallbackLocationOptions[0]);
+  const [amenityPackage, setAmenityPackage] = React.useState(dogAmenityPackages[0]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = React.useState(true);
   const [isLoadingPets, setIsLoadingPets] = React.useState(true);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [notes, setNotes] = React.useState("");
   const [pets, setPets] = React.useState<Pet[]>([]);
-  const [reservationType, setReservationType] = React.useState(reservationTypeOptions[0]);
+  const [reservationTypeOptions, setReservationTypeOptions] = React.useState(
+    fallbackReservationTypeOptions,
+  );
+  const [reservationType, setReservationType] = React.useState(fallbackReservationTypeOptions[0]);
   const [selectedSpaService, setSelectedSpaService] = React.useState("");
   const [selectedSpaUpgrades, setSelectedSpaUpgrades] = React.useState<Set<string>>(new Set());
   const [selectedPetIds, setSelectedPetIds] = React.useState<Set<string>>(initialPetIds);
-  const [suiteSize, setSuiteSize] = React.useState(suiteSizes[0]);
+  const [suiteSize, setSuiteSize] = React.useState(dogSuiteSizes[0]);
   const [startDate, setStartDate] = React.useState("");
   const [startTime, setStartTime] = React.useState("");
   const stepScrollRef = React.useRef<ScrollView>(null);
 
   React.useEffect(() => {
     let isMounted = true;
+
+    getGingrReservationRequestCatalog()
+      .then((catalog) => {
+        if (!isMounted || !catalog) {
+          return;
+        }
+
+        setRequestCatalog(catalog);
+
+        const cityOptions = catalog.locations.map((gingrLocation) => gingrLocation.city);
+        const requestTypeOptions = normalizeReservationTypeOptions(catalog.reservationTypes);
+
+        if (cityOptions.length > 0) {
+          setLocationOptions(cityOptions);
+          setLocation((current) => (cityOptions.includes(current) ? current : cityOptions[0]));
+        }
+
+        if (requestTypeOptions.length > 0) {
+          setReservationTypeOptions(requestTypeOptions);
+          setReservationType((current) =>
+            requestTypeOptions.includes(current) ? current : requestTypeOptions[0],
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("Unable to load Gingr request catalog; using fallback request options.", error);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingCatalog(false);
+        }
+      });
 
     getCurrentClientPetsForApp()
       .then((clientPets) => {
@@ -100,26 +146,85 @@ export function RequestReservationScreen() {
     };
   }, []);
 
-  const canSubmit =
-    selectedPetIds.size > 0 &&
-    Boolean(location) &&
-    Boolean(reservationType) &&
-    isIsoDate(startDate) &&
-    isIsoDate(endDate) &&
-    isTimeValue(startTime) &&
-    isTimeValue(endTime) &&
-    Boolean(amenityPackage) &&
-    Boolean(suiteSize) &&
-    !isSubmitting;
+  const selectedPets = pets.filter((pet) => selectedPetIds.has(pet.id));
+  const petsMissingCurrentVaccinations = selectedPets.filter((pet) => !hasCurrentVaccinations(pet));
+  const selectedSpeciesKind = getSelectedPetSpeciesKind(selectedPets);
+  const isMixedSpeciesRequest = selectedSpeciesKind === "mixed";
+  const isCatRequest = selectedSpeciesKind === "cat";
+  const isBoardingRequest = reservationType === "Boarding";
+  const isDaycareRequest = reservationType === "Daycare";
+  const isSpaRequest = reservationType === "Spa";
+  const isWichitaFallsLocation = location.toLowerCase().includes("wichita falls");
+  const availableReservationTypeOptions = React.useMemo(
+    () => reservationTypeOptions.filter((option) => !(isCatRequest && option === "Spa")),
+    [isCatRequest, reservationTypeOptions],
+  );
+  const shouldShowDogBoardingPreferences = isBoardingRequest && !isCatRequest && !isMixedSpeciesRequest;
+  const shouldShowCatBoardingPreferences = isBoardingRequest && isCatRequest;
+  const shouldShowBoardingPreferences =
+    shouldShowDogBoardingPreferences || shouldShowCatBoardingPreferences;
+  const shouldShowEnrichment = !isSpaRequest && !isMixedSpeciesRequest;
+  const shouldShowSpaOptions = !isCatRequest && !isMixedSpeciesRequest;
+  const experienceComplete =
+    !isMixedSpeciesRequest &&
+    !(isCatRequest && isSpaRequest) &&
+    (!shouldShowBoardingPreferences ||
+      (shouldShowDogBoardingPreferences ? Boolean(amenityPackage) : true) &&
+        Boolean(suiteSize));
+  const experienceSummary = formatExperienceSummary({
+    amenityPackage,
+    enrichmentEnabled,
+    enrichmentFrequency,
+    isCatRequest,
+    reservationType,
+    selectedSpaService,
+    selectedSpaUpgrades,
+    shouldShowSpaOptions,
+    suiteSize,
+  });
   const activeStep = steps[activeStepIndex];
   const availableSuiteSizes = React.useMemo(
-    () => suiteSizesForPackage(amenityPackage),
-    [amenityPackage],
+    () =>
+      shouldShowCatBoardingPreferences
+        ? catAccommodationOptionsForLocation(location, requestCatalog)
+        : suiteSizesForPackage(amenityPackage),
+    [amenityPackage, location, requestCatalog, shouldShowCatBoardingPreferences],
   );
   const canSelectTimes = isIsoDate(startDate) && isIsoDate(endDate);
+  const startTimeOptions = React.useMemo(
+    () => getOperationTimeOptions(startDate, "dropoff"),
+    [startDate],
+  );
+  const endTimeOptions = React.useMemo(
+    () => getOperationTimeOptions(endDate, "pickup"),
+    [endDate],
+  );
+  const hasValidDateSelection =
+    isIsoDate(startDate) &&
+    isIsoDate(endDate) &&
+    !isDateUnavailableForRequest(startDate, reservationType, location) &&
+    !isDateUnavailableForRequest(endDate, reservationType, location);
+  const hasValidTimeSelection =
+    isTimeValue(startTime) &&
+    isTimeValue(endTime) &&
+    startTimeOptions.includes(startTime) &&
+    endTimeOptions.includes(endTime);
+  const daycareAvailabilityNotice =
+    isDaycareRequest && isWichitaFallsLocation
+      ? "Wichita Falls daycare requests are available Monday through Thursday. Please call for Friday through Sunday availability."
+      : null;
+  const canSubmit =
+    selectedPetIds.size > 0 &&
+    petsMissingCurrentVaccinations.length === 0 &&
+    Boolean(location) &&
+    Boolean(reservationType) &&
+    hasValidDateSelection &&
+    hasValidTimeSelection &&
+    experienceComplete &&
+    !isSubmitting;
   const currentStepNumber = activeStepIndex + 1;
   const progressPercent = `${(currentStepNumber / steps.length) * 100}%` as DimensionValue;
-  const selectedPets = pets.filter((pet) => selectedPetIds.has(pet.id));
+  const isSingleDayRequest = !isBoardingRequest;
 
   React.useEffect(() => {
     if (!availableSuiteSizes.includes(suiteSize)) {
@@ -131,9 +236,46 @@ export function RequestReservationScreen() {
     stepScrollRef.current?.scrollTo({ animated: false, y: 0 });
   }, [activeStepIndex]);
 
+  React.useEffect(() => {
+    if (!availableReservationTypeOptions.includes(reservationType)) {
+      setReservationType(availableReservationTypeOptions[0] ?? fallbackReservationTypeOptions[0]);
+      setSelectedSpaService("");
+      setSelectedSpaUpgrades(new Set());
+    }
+  }, [availableReservationTypeOptions, reservationType]);
+
+  React.useEffect(() => {
+    if (isSingleDayRequest && startDate && endDate !== startDate) {
+      setEndDate(startDate);
+    }
+  }, [endDate, isSingleDayRequest, startDate]);
+
+  React.useEffect(() => {
+    if (
+      (startDate && isDateUnavailableForRequest(startDate, reservationType, location)) ||
+      (endDate && isDateUnavailableForRequest(endDate, reservationType, location))
+    ) {
+      setStartDate("");
+      setEndDate("");
+      setStartTime("");
+      setEndTime("");
+      setActiveTimeField(null);
+    }
+  }, [endDate, location, reservationType, startDate]);
+
+  React.useEffect(() => {
+    if (startTime && !startTimeOptions.includes(startTime)) {
+      setStartTime("");
+    }
+
+    if (endTime && !endTimeOptions.includes(endTime)) {
+      setEndTime("");
+    }
+  }, [endTime, endTimeOptions, startTime, startTimeOptions]);
+
   function canAdvanceFromStep(step: RequestStep) {
     if (step === "Pets") {
-      return selectedPetIds.size > 0;
+      return selectedPetIds.size > 0 && petsMissingCurrentVaccinations.length === 0;
     }
 
     if (step === "Location") {
@@ -145,13 +287,11 @@ export function RequestReservationScreen() {
     }
 
     if (step === "Dates") {
-      return (
-        isIsoDate(startDate) && isIsoDate(endDate) && isTimeValue(startTime) && isTimeValue(endTime)
-      );
+      return hasValidDateSelection && hasValidTimeSelection;
     }
 
     if (step === "Experience") {
-      return Boolean(amenityPackage) && Boolean(suiteSize);
+      return experienceComplete;
     }
 
     return canSubmit;
@@ -177,7 +317,17 @@ export function RequestReservationScreen() {
     setSelectedSpaUpgrades((current) => toggleSetValue(current, upgrade));
   }
 
-  function handleRangeDatePress(value: string) {
+  function handleDatePress(value: string) {
+    if (isDateUnavailableForRequest(value, reservationType, location)) {
+      return;
+    }
+
+    if (isSingleDayRequest) {
+      setStartDate(value);
+      setEndDate(value);
+      return;
+    }
+
     if (!startDate || (startDate && endDate)) {
       setStartDate(value);
       setEndDate("");
@@ -241,15 +391,15 @@ export function RequestReservationScreen() {
     setEnrichmentEnabled(false);
     setEnrichmentFrequency(enrichmentFrequencies[0]);
     setErrorMessage(null);
-    setLocation(locationOptions[0]);
-    setAmenityPackage(amenityPackages[0]);
+    setLocation(locationOptions[0] ?? fallbackLocationOptions[0]);
+    setAmenityPackage(dogAmenityPackages[0]);
     setIsSubmitting(false);
     setNotes("");
-    setReservationType(reservationTypeOptions[0]);
+    setReservationType(reservationTypeOptions[0] ?? fallbackReservationTypeOptions[0]);
     setSelectedSpaService("");
     setSelectedSpaUpgrades(new Set());
     setSelectedPetIds(new Set(initialPetIds));
-    setSuiteSize(suiteSizes[0]);
+    setSuiteSize(dogSuiteSizes[0]);
     setStartDate("");
     setStartTime("");
   }
@@ -276,23 +426,23 @@ export function RequestReservationScreen() {
 
     try {
       const request = await createReservationRequest({
-        amenity_package: amenityPackage,
+        amenity_package: shouldShowDogBoardingPreferences ? amenityPackage : null,
         authorized_pickup: authorizedPickup.trim() || null,
         end_date: endDate,
         end_time: endTime,
-        enrichment_enabled: enrichmentEnabled,
-        enrichment_frequency: enrichmentEnabled ? enrichmentFrequency : null,
-        experience: `${reservationType} - ${amenityPackage}`,
+        enrichment_enabled: shouldShowEnrichment ? enrichmentEnabled : false,
+        enrichment_frequency: shouldShowEnrichment && enrichmentEnabled ? enrichmentFrequency : null,
+        experience: experienceSummary,
         location,
         notes: notes.trim() || null,
         optional_services: [],
         reservation_type: reservationType,
         selected_pet_ids: Array.from(selectedPetIds),
-        spa_service: selectedSpaService || null,
-        spa_upgrades: Array.from(selectedSpaUpgrades),
+        spa_service: shouldShowSpaOptions ? selectedSpaService || null : null,
+        spa_upgrades: shouldShowSpaOptions ? Array.from(selectedSpaUpgrades) : [],
         start_date: startDate,
         start_time: startTime,
-        suite_size: suiteSize,
+        suite_size: shouldShowBoardingPreferences ? suiteSize : null,
       });
       setCreatedRequest(request);
     } catch (error) {
@@ -421,6 +571,24 @@ export function RequestReservationScreen() {
                 </Pressable>
               );
             })}
+            {isMixedSpeciesRequest ? (
+              <Card style={styles.guidanceCard}>
+                <Text variant="title">Separate requests recommended</Text>
+                <Text variant="body" tone="secondary">
+                  Dog and cat reservations use different accommodation options. Please submit one
+                  request for dogs and another for cats so each stay can be prepared correctly.
+                </Text>
+              </Card>
+            ) : null}
+            {petsMissingCurrentVaccinations.length > 0 ? (
+              <Card style={styles.guidanceCard}>
+                <Text variant="title">Vaccinations need attention</Text>
+                <Text variant="body" tone="secondary">
+                  {petsMissingCurrentVaccinations.map((pet) => pet.name).join(", ")} must have
+                  current vaccination records before a reservation can be requested.
+                </Text>
+              </Card>
+            ) : null}
           </View>
         </>
       ) : null}
@@ -430,7 +598,9 @@ export function RequestReservationScreen() {
           <View style={styles.sectionHeader}>
             <Text variant="title">Which location?</Text>
             <Text variant="caption" tone="secondary">
-              Choose where this reservation should be requested.
+              {isLoadingCatalog
+                ? "Loading Le Chateau request options from Gingr..."
+                : "Choose where this reservation should be requested."}
             </Text>
           </View>
           <DropdownField
@@ -456,7 +626,7 @@ export function RequestReservationScreen() {
             </Text>
           </View>
           <View style={styles.optionGrid}>
-            {reservationTypeOptions.map((option) => (
+            {availableReservationTypeOptions.map((option) => (
               <Button
                 key={option}
                 onPress={() => setReservationType(option)}
@@ -474,16 +644,31 @@ export function RequestReservationScreen() {
           <View style={styles.sectionHeader}>
             <Text variant="title">Choose dates and times</Text>
             <Text variant="caption" tone="secondary">
-              Tap the arrival date, then the pickup date.
+              {isSingleDayRequest
+                ? "Choose the visit date, then select drop-off and pickup times."
+                : "Tap the arrival date, then the pickup date."}
             </Text>
           </View>
           <ReservationCalendar
             month={calendarMonth}
             endDate={endDate}
+            isDateDisabled={(date) =>
+              isBeforeToday(date) ||
+              isDateUnavailableForRequest(formatIsoDate(date), reservationType, location)
+            }
+            singleDay={isSingleDayRequest}
             onMonthChange={setCalendarMonth}
-            onSelectDate={handleRangeDatePress}
+            onSelectDate={handleDatePress}
             startDate={startDate}
           />
+          {daycareAvailabilityNotice ? (
+            <Card style={styles.guidanceCard}>
+              <Text variant="title">Weekend daycare availability</Text>
+              <Text variant="body" tone="secondary">
+                {daycareAvailabilityNotice}
+              </Text>
+            </Card>
+          ) : null}
           <TimeField
             active={activeTimeField === "start"}
             disabled={!canSelectTimes}
@@ -494,6 +679,7 @@ export function RequestReservationScreen() {
                 setActiveTimeField(activeTimeField === "start" ? null : "start");
               }
             }}
+            options={startTimeOptions}
             value={startTime}
           />
           <TimeField
@@ -506,6 +692,7 @@ export function RequestReservationScreen() {
                 setActiveTimeField(activeTimeField === "end" ? null : "end");
               }
             }}
+            options={endTimeOptions}
             value={endTime}
           />
         </View>
@@ -513,101 +700,148 @@ export function RequestReservationScreen() {
 
       {activeStep === "Experience" ? (
         <>
-          <View style={styles.formGroup}>
-            <View style={styles.sectionHeader}>
-              <Text variant="title">Amenity package</Text>
-              <Text variant="caption" tone="secondary">
-                Select the package and suite preferences.
+          {isMixedSpeciesRequest ? (
+            <Card style={styles.guidanceCard}>
+              <Text variant="title">Let’s split this request</Text>
+              <Text variant="body" tone="secondary">
+                Dogs and cats have different accommodation paths. Please go back and select pets
+                from one species for this request.
               </Text>
-            </View>
-            <View style={styles.optionGrid}>
-              {amenityPackages.map((option) => (
-                <Button
-                  key={option}
-                  onPress={() => setAmenityPackage(option)}
-                  title={option}
-                  variant={amenityPackage === option ? "primary" : "secondary"}
-                  style={styles.optionButton}
-                />
-              ))}
-            </View>
-          </View>
+            </Card>
+          ) : null}
 
-          <View style={styles.formGroup}>
-            <Text variant="title">Preferred suite size</Text>
-            <View style={styles.optionGrid}>
-              {availableSuiteSizes.map((option) => (
-                <Button
-                  key={option}
-                  onPress={() => setSuiteSize(option)}
-                  title={option}
-                  variant={suiteSize === option ? "primary" : "secondary"}
-                  style={styles.optionButton}
-                />
-              ))}
-            </View>
-          </View>
+          {shouldShowDogBoardingPreferences ? (
+            <>
+              <View style={styles.formGroup}>
+                <View style={styles.sectionHeader}>
+                  <Text variant="title">Amenity package</Text>
+                  <Text variant="caption" tone="secondary">
+                    Select the boarding package and suite preferences.
+                  </Text>
+                </View>
+                <View style={styles.optionGrid}>
+                  {dogAmenityPackages.map((option) => (
+                    <Button
+                      key={option}
+                      onPress={() => setAmenityPackage(option)}
+                      title={option}
+                      variant={amenityPackage === option ? "primary" : "secondary"}
+                      style={styles.optionButton}
+                    />
+                  ))}
+                </View>
+              </View>
 
-          <View style={styles.formGroup}>
-            <Text variant="title">Enrichment</Text>
-            <View style={styles.optionGrid}>
-              <Button
-                onPress={() => setEnrichmentEnabled(true)}
-                title="Yes"
-                variant={enrichmentEnabled ? "primary" : "secondary"}
-                style={styles.optionButton}
-              />
-              <Button
-                onPress={() => setEnrichmentEnabled(false)}
-                title="No"
-                variant={!enrichmentEnabled ? "primary" : "secondary"}
-                style={styles.optionButton}
-              />
-            </View>
-            {enrichmentEnabled ? (
+              <View style={styles.formGroup}>
+                <Text variant="title">Preferred suite size</Text>
+                <View style={styles.optionGrid}>
+                  {availableSuiteSizes.map((option) => (
+                    <Button
+                      key={option}
+                      onPress={() => setSuiteSize(option)}
+                      title={option}
+                      variant={suiteSize === option ? "primary" : "secondary"}
+                      style={styles.optionButton}
+                    />
+                  ))}
+                </View>
+              </View>
+            </>
+          ) : null}
+
+          {shouldShowCatBoardingPreferences ? (
+            <View style={styles.formGroup}>
+              <View style={styles.sectionHeader}>
+                <Text variant="title">Cat accommodation</Text>
+                <Text variant="caption" tone="secondary">
+                  Choose the preferred cat accommodation for this location.
+                </Text>
+              </View>
               <View style={styles.optionGrid}>
-                {enrichmentFrequencies.map((option) => (
+                {availableSuiteSizes.map((option) => (
                   <Button
                     key={option}
-                    onPress={() => setEnrichmentFrequency(option)}
+                    onPress={() => setSuiteSize(option)}
                     title={option}
-                    variant={enrichmentFrequency === option ? "primary" : "secondary"}
+                    variant={suiteSize === option ? "primary" : "secondary"}
                     style={styles.optionButton}
                   />
                 ))}
               </View>
-            ) : null}
-          </View>
+            </View>
+          ) : null}
 
-          <View style={styles.formGroup}>
-            <Text variant="title">Spa services</Text>
-            <View style={styles.optionGrid}>
-              {spaServices.map((service) => (
+          {shouldShowEnrichment ? (
+            <View style={styles.formGroup}>
+              <View style={styles.sectionHeader}>
+                <Text variant="title">Enrichment</Text>
+                <Text variant="caption" tone="secondary">
+                  Add extra play and activity time if you would like.
+                </Text>
+              </View>
+              <View style={styles.optionGrid}>
                 <Button
-                  key={service}
-                  onPress={() => toggleSpaService(service)}
-                  title={service}
-                  variant={selectedSpaService === service ? "primary" : "secondary"}
+                  onPress={() => setEnrichmentEnabled(true)}
+                  title="Yes"
+                  variant={enrichmentEnabled ? "primary" : "secondary"}
                   style={styles.optionButton}
                 />
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text variant="title">Spa upgrades</Text>
-            <View style={styles.optionGrid}>
-              {spaUpgrades.map((upgrade) => (
                 <Button
-                  key={upgrade}
-                  onPress={() => toggleSpaUpgrade(upgrade)}
-                  title={upgrade}
-                  variant={selectedSpaUpgrades.has(upgrade) ? "primary" : "secondary"}
+                  onPress={() => setEnrichmentEnabled(false)}
+                  title="No"
+                  variant={!enrichmentEnabled ? "primary" : "secondary"}
                   style={styles.optionButton}
                 />
-              ))}
+              </View>
+              {enrichmentEnabled ? (
+                <View style={styles.optionGrid}>
+                  {enrichmentFrequencies.map((option) => (
+                    <Button
+                      key={option}
+                      onPress={() => setEnrichmentFrequency(option)}
+                      title={option}
+                      variant={enrichmentFrequency === option ? "primary" : "secondary"}
+                      style={styles.optionButton}
+                    />
+                  ))}
+                </View>
+              ) : null}
             </View>
-          </View>
+          ) : null}
+
+          {shouldShowSpaOptions ? (
+            <>
+              <View style={styles.formGroup}>
+                <Text variant="title">Spa services</Text>
+                <View style={styles.optionGrid}>
+                  {spaServices.map((service) => (
+                    <Button
+                      key={service}
+                      onPress={() => toggleSpaService(service)}
+                      title={service}
+                      variant={selectedSpaService === service ? "primary" : "secondary"}
+                      style={styles.optionButton}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text variant="title">Spa upgrades</Text>
+                <View style={styles.optionGrid}>
+                  {spaUpgrades.map((upgrade) => (
+                    <Button
+                      key={upgrade}
+                      onPress={() => toggleSpaUpgrade(upgrade)}
+                      title={upgrade}
+                      variant={selectedSpaUpgrades.has(upgrade) ? "primary" : "secondary"}
+                      style={styles.optionButton}
+                    />
+                  ))}
+                </View>
+              </View>
+            </>
+          ) : null}
         </>
       ) : null}
 
@@ -630,7 +864,7 @@ export function RequestReservationScreen() {
                 {formatDisplayTime(endTime)}
               </Text>
               <Text variant="caption" tone="secondary">
-                {location} | {reservationType} | {amenityPackage} | {suiteSize}
+                {location} | {experienceSummary}
               </Text>
             </Card>
             <TextField
@@ -689,6 +923,7 @@ type TimeFieldProps = {
   label: string;
   onSelect: (value: string) => void;
   onPress: () => void;
+  options: readonly string[];
   value: string;
 };
 
@@ -703,9 +938,11 @@ type DropdownFieldProps = {
 
 type ReservationCalendarProps = {
   endDate: string;
+  isDateDisabled: (date: Date) => boolean;
   month: Date;
   onMonthChange: (date: Date) => void;
   onSelectDate: (value: string) => void;
+  singleDay: boolean;
   startDate: string;
 };
 
@@ -717,9 +954,11 @@ type ReservationExitModalProps = {
 
 function ReservationCalendar({
   endDate,
+  isDateDisabled,
   month,
   onMonthChange,
   onSelectDate,
+  singleDay,
   startDate,
 }: ReservationCalendarProps) {
   const days = getCalendarDays(month);
@@ -765,7 +1004,7 @@ function ReservationCalendar({
           }
 
           const value = formatIsoDate(day);
-          const disabled = isBeforeToday(day);
+          const disabled = isDateDisabled(day);
           const selected = value === startDate || value === endDate;
           const inRange = isDateInRange(value, startDate, endDate);
 
@@ -798,17 +1037,29 @@ function ReservationCalendar({
 
       <View style={styles.dateRangeSummary}>
         <Text variant="caption" tone="secondary">
-          {startDate ? `Drop-off: ${formatDisplayDate(startDate)}` : "Choose a drop-off date"}
+          {startDate
+            ? `${singleDay ? "Visit" : "Drop-off"}: ${formatDisplayDate(startDate)}`
+            : `Choose a ${singleDay ? "visit" : "drop-off"} date`}
         </Text>
-        <Text variant="caption" tone="secondary">
-          {endDate ? `Pickup: ${formatDisplayDate(endDate)}` : "Choose a pickup date"}
-        </Text>
+        {!singleDay ? (
+          <Text variant="caption" tone="secondary">
+            {endDate ? `Pickup: ${formatDisplayDate(endDate)}` : "Choose a pickup date"}
+          </Text>
+        ) : null}
       </View>
     </Card>
   );
 }
 
-function TimeField({ active, disabled = false, label, onPress, onSelect, value }: TimeFieldProps) {
+function TimeField({
+  active,
+  disabled = false,
+  label,
+  onPress,
+  onSelect,
+  options,
+  value,
+}: TimeFieldProps) {
   return (
     <View style={styles.datePickerWrap}>
       <Pressable
@@ -842,23 +1093,31 @@ function TimeField({ active, disabled = false, label, onPress, onSelect, value }
           style={styles.timeScroll}
           contentContainerStyle={styles.timeOptions}
         >
-          {timeOptions.map((option) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: value === option }}
-              key={option}
-              onPress={() => onSelect(option)}
-              style={({ pressed }) => [
-                styles.timeOption,
-                value === option && styles.timeOptionActive,
-                pressed && styles.dateFieldPressed,
-              ]}
-            >
-              <Text variant="caption" tone={value === option ? "inverse" : "brand"}>
-                {formatDisplayTime(option)}
+          {options.length > 0 ? (
+            options.map((option) => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: value === option }}
+                key={option}
+                onPress={() => onSelect(option)}
+                style={({ pressed }) => [
+                  styles.timeOption,
+                  value === option && styles.timeOptionActive,
+                  pressed && styles.dateFieldPressed,
+                ]}
+              >
+                <Text variant="caption" tone={value === option ? "inverse" : "brand"}>
+                  {formatDisplayTime(option)}
+                </Text>
+              </Pressable>
+            ))
+          ) : (
+            <View style={styles.timeEmpty}>
+              <Text variant="caption" tone="muted">
+                No available times for this date.
               </Text>
-            </Pressable>
-          ))}
+            </View>
+          )}
         </ScrollView>
       ) : null}
     </View>
@@ -996,10 +1255,209 @@ function suiteSizesForPackage(packageName: string) {
   }
 
   if (packageName === "Premium") {
-    return suiteSizes.filter((suite) => suite !== "Chateau (10x8)");
+    return dogSuiteSizes.filter((suite) => suite !== "Chateau (10x8)");
   }
 
-  return suiteSizes;
+  return dogSuiteSizes;
+}
+
+function catAccommodationOptionsForLocation(
+  location: string,
+  catalog: GingrReservationRequestCatalog | null,
+) {
+  const fallbackOptions = catAccommodationFallbackForLocation(location);
+
+  if (!catalog) {
+    return fallbackOptions;
+  }
+
+  const catalogLocation = catalog.locations.find(
+    (catalogItem) => catalogItem.city.toLowerCase() === location.toLowerCase(),
+  );
+  const boardingTypeIds = catalog.reservationTypes
+    .filter((catalogItem) => catalogItem.name.toLowerCase().includes("boarding"))
+    .map((catalogItem) => catalogItem.id);
+  const serviceNames = catalog.serviceGroups
+    .filter((group) => {
+      const locationMatches = !catalogLocation?.id || group.locationId === catalogLocation.id;
+      return locationMatches && boardingTypeIds.includes(group.reservationTypeId);
+    })
+    .flatMap((group) => group.services)
+    .map((service) => service.name.toLowerCase());
+  const matchedOptions = fallbackOptions.filter((option) =>
+    serviceNames.some((serviceName) => serviceName.includes(option.toLowerCase())),
+  );
+
+  return matchedOptions.length > 0 ? matchedOptions : fallbackOptions;
+}
+
+function catAccommodationFallbackForLocation(location: string) {
+  if (location.toLowerCase().includes("wichita falls")) {
+    return catAccommodationOptions.filter((option) => option !== "Villa");
+  }
+
+  return catAccommodationOptions;
+}
+
+function normalizeReservationTypeOptions(
+  reservationTypes: GingrReservationRequestCatalog["reservationTypes"],
+) {
+  const normalizedOptions = reservationTypes
+    .map((reservationType) => normalizeReservationTypeName(reservationType.name))
+    .filter((option): option is ReservationTypeOption => Boolean(option));
+  const knownOptions = new Set([...normalizedOptions, ...fallbackReservationTypeOptions]);
+
+  return fallbackReservationTypeOptions.filter((option) => knownOptions.has(option));
+}
+
+function normalizeReservationTypeName(value: string): ReservationTypeOption | null {
+  const normalized = value.toLowerCase();
+
+  if (normalized.includes("boarding") || normalized.includes("lodging")) {
+    return "Boarding";
+  }
+
+  if (normalized.includes("daycare") || normalized.includes("day care")) {
+    return "Daycare";
+  }
+
+  if (
+    normalized.includes("spa") ||
+    normalized.includes("groom") ||
+    normalized.includes("bath")
+  ) {
+    return "Spa";
+  }
+
+  return null;
+}
+
+function getSelectedPetSpeciesKind(selectedPets: Pet[]): PetSpeciesKind {
+  const speciesKinds = new Set(
+    selectedPets
+      .map((pet) => getPetSpeciesKind(pet.species))
+      .filter((kind): kind is Exclude<PetSpeciesKind, "mixed"> => kind !== "unknown"),
+  );
+
+  if (speciesKinds.size > 1) {
+    return "mixed";
+  }
+
+  return speciesKinds.values().next().value ?? "unknown";
+}
+
+function getPetSpeciesKind(species?: string): PetSpeciesKind {
+  const normalized = species?.toLowerCase() ?? "";
+
+  if (normalized.includes("cat") || normalized.includes("feline")) {
+    return "cat";
+  }
+
+  if (normalized.includes("dog") || normalized.includes("canine")) {
+    return "dog";
+  }
+
+  return "unknown";
+}
+
+function hasCurrentVaccinations(pet: Pet) {
+  if (!pet.nextImmunizationExpiration) {
+    return false;
+  }
+
+  const expiration = parseIsoDate(pet.nextImmunizationExpiration);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return expiration >= today;
+}
+
+function formatExperienceSummary({
+  amenityPackage,
+  enrichmentEnabled,
+  enrichmentFrequency,
+  isCatRequest,
+  reservationType,
+  selectedSpaService,
+  selectedSpaUpgrades,
+  shouldShowSpaOptions,
+  suiteSize,
+}: {
+  amenityPackage: string;
+  enrichmentEnabled: boolean;
+  enrichmentFrequency: string;
+  isCatRequest: boolean;
+  reservationType: string;
+  selectedSpaService: string;
+  selectedSpaUpgrades: Set<string>;
+  shouldShowSpaOptions: boolean;
+  suiteSize: string;
+}) {
+  const parts = [reservationType];
+
+  if (reservationType === "Boarding") {
+    if (!isCatRequest) {
+      parts.push(amenityPackage);
+    }
+
+    parts.push(suiteSize);
+  }
+
+  if (reservationType !== "Spa" && enrichmentEnabled) {
+    parts.push(`Enrichment ${enrichmentFrequency.toLowerCase()}`);
+  }
+
+  if (shouldShowSpaOptions && selectedSpaService) {
+    parts.push(selectedSpaService);
+  }
+
+  if (shouldShowSpaOptions && selectedSpaUpgrades.size > 0) {
+    parts.push(`${selectedSpaUpgrades.size} spa upgrade${selectedSpaUpgrades.size === 1 ? "" : "s"}`);
+  }
+
+  return parts.join(" | ");
+}
+
+function isDateUnavailableForRequest(dateValue: string, reservationType: string, location: string) {
+  if (!isIsoDate(dateValue)) {
+    return true;
+  }
+
+  return (
+    reservationType === "Daycare" &&
+    location.toLowerCase().includes("wichita falls") &&
+    isFridayThroughSunday(parseIsoDate(dateValue))
+  );
+}
+
+function isFridayThroughSunday(date: Date) {
+  const day = date.getDay();
+
+  return day === 0 || day === 5 || day === 6;
+}
+
+function getOperationTimeOptions(dateValue: string, mode: "dropoff" | "pickup") {
+  if (!isIsoDate(dateValue)) {
+    return [];
+  }
+
+  const hours = getOperationHours(parseIsoDate(dateValue));
+  const cutoffMinutes = mode === "dropoff" ? 30 : 15;
+  const latestMinutes = hours.closeMinutes - cutoffMinutes;
+
+  return timeOptions.filter((option) => {
+    const minutes = timeValueToMinutes(option);
+    return minutes >= hours.openMinutes && minutes <= latestMinutes;
+  });
+}
+
+function getOperationHours(date: Date) {
+  const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+
+  return {
+    closeMinutes: isWeekend ? 18 * 60 : 19 * 60,
+    openMinutes: isWeekend ? 8 * 60 : 7 * 60,
+  };
 }
 
 function buildTimeOptions() {
@@ -1020,6 +1478,11 @@ function isIsoDate(value: string) {
 
 function isTimeValue(value: string) {
   return /^\d{2}:\d{2}$/.test(value);
+}
+
+function timeValueToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
 }
 
 function parseIsoDate(value: string) {
@@ -1193,6 +1656,9 @@ const styles = StyleSheet.create({
   formGroup: {
     gap: spacing.sm,
   },
+  guidanceCard: {
+    gap: spacing.sm,
+  },
   header: {
     alignItems: "center",
     flexDirection: "row",
@@ -1330,6 +1796,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.sm,
     zIndex: 2,
+  },
+  timeEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
   },
   timeOption: {
     alignItems: "center",

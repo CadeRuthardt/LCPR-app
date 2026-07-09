@@ -2,6 +2,8 @@ export { ExploreScreen } from "./explore-screen";
 export { HomeScreen } from "./home-screen";
 export { LoginScreen } from "./login-screen";
 export { PetsScreen } from "./pets-screen";
+export { PetProfileScreen } from "./pet-profile-screen";
 export { ProfileScreen } from "./profile-screen";
+export { ReservationDetailScreen } from "./reservation-detail-screen";
 export { RequestReservationScreen } from "./request-reservation-screen";
 export { ReservationsScreen } from "./reservations-screen";

@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import * as React from "react";
 
 import { PetCard } from "@/components/composites";
-import { Button, Screen, Section, Text } from "@/components/primitives";
+import { Screen, Section, Text } from "@/components/primitives";
 import { getCurrentClientPetsForApp } from "@/services/client-data";
 import type { Pet } from "@/types/app";
 
@@ -12,8 +12,6 @@ export function PetsScreen() {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [pets, setPets] = React.useState<Pet[]>([]);
-  const [selectedPetIds, setSelectedPetIds] = React.useState<Set<string>>(new Set());
-  const hasSelectedPets = selectedPetIds.size > 0;
 
   React.useEffect(() => {
     let isMounted = true;
@@ -41,20 +39,6 @@ export function PetsScreen() {
     };
   }, []);
 
-  function togglePet(petId: string) {
-    setSelectedPetIds((current) => {
-      const next = new Set(current);
-
-      if (next.has(petId)) {
-        next.delete(petId);
-      } else {
-        next.add(petId);
-      }
-
-      return next;
-    });
-  }
-
   return (
     <Screen>
       <ScreenHeader title="My Pets" />
@@ -66,30 +50,18 @@ export function PetsScreen() {
             Your pet profiles will appear here once we match your Le Chateau account.
           </Text>
         ) : null}
-        {pets.map((pet) => {
-          const isSelected = selectedPetIds.has(pet.id);
-
-          return (
-            <PetCard
-              key={pet.id}
-              onPress={() => togglePet(pet.id)}
-              pet={pet}
-              selected={isSelected}
-            />
-          );
-        })}
-        {hasSelectedPets ? (
-          <Button
-            icon="calendar"
+        {pets.map((pet) => (
+          <PetCard
+            key={pet.id}
             onPress={() =>
               router.push({
-                pathname: "/request-reservation",
-                params: { petIds: Array.from(selectedPetIds).join(",") },
+                pathname: "/pet-profile",
+                params: { petId: pet.id },
               })
             }
-            title="Request a Reservation"
+            pet={pet}
           />
-        ) : null}
+        ))}
       </Section>
     </Screen>
   );

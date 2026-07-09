@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Image, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button, Icon, Screen, Section, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
+import { getCurrentClientOwnerProfileForApp } from "@/services/client-data";
 import { runGingrDiscovery } from "@/services/gingr";
 import type { GingrDiscoveryAction } from "@/services/gingr";
 import { colors, radius, spacing } from "@/theme";
@@ -27,9 +28,13 @@ const gingrDebugActions: Array<{
   label: string;
 }> = [
   { action: "locations", label: "Test Locations" },
+  { action: "location-cities", label: "Test Location Cities" },
   { action: "reservation-types", label: "Test Reservation Types" },
+  { action: "list-invoices", label: "Test List Invoices" },
   { action: "current-owner", label: "Test Current Owner" },
+  { action: "current-owner-profile", label: "Test Owner Profile" },
   { action: "current-pets", label: "Test Current Pets" },
+  { action: "reservation-detail-test", label: "Test Reservation Detail" },
   { action: "current-client-snapshot", label: "Test Current Snapshot" },
 ];
 
@@ -43,6 +48,25 @@ export function ProfileScreen() {
   const [debugError, setDebugError] = useState<string | null>(null);
   const [debugResponse, setDebugResponse] = useState<string | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadOwnerProfile() {
+      const ownerProfile = await getCurrentClientOwnerProfileForApp();
+
+      if (isMounted) {
+        setProfileImageUrl(ownerProfile?.imageUrl ?? null);
+      }
+    }
+
+    void loadOwnerProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function runDebugAction(action: GingrDiscoveryAction) {
     setDebugAction(action);
@@ -63,9 +87,15 @@ export function ProfileScreen() {
   return (
     <Screen contentStyle={styles.content} topSafeArea={false}>
       <View style={[styles.profileHero, { paddingTop: insets.top + spacing.xxl }]}>
-        <Text variant="display" tone="accent" style={styles.profileMonogram}>
-          {initials}
-        </Text>
+        <View style={styles.profileAvatar}>
+          {profileImageUrl ? (
+            <Image source={{ uri: profileImageUrl }} style={styles.profileAvatarImage} />
+          ) : (
+            <Text variant="display" tone="accent" style={styles.profileMonogram}>
+              {initials}
+            </Text>
+          )}
+        </View>
         <Text variant="heading" tone="inverse">
           {displayName}
         </Text>
@@ -208,15 +238,23 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingBottom: spacing.xxl,
   },
-  profileMonogram: {
+  profileAvatar: {
     borderColor: colors.goldenrod,
     borderRadius: radius.pill,
     borderWidth: 3,
     height: 104,
-    lineHeight: 98,
     overflow: "hidden",
-    textAlign: "center",
     width: 104,
+  },
+  profileAvatarImage: {
+    height: "100%",
+    width: "100%",
+  },
+  profileMonogram: {
+    height: "100%",
+    lineHeight: 98,
+    textAlign: "center",
+    width: "100%",
   },
   sectionWrap: {
     paddingTop: spacing.xl,

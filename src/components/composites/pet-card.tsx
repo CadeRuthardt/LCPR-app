@@ -7,14 +7,16 @@ import type { Pet } from "../../types/app";
 type PetCardProps = {
   onPress?: () => void;
   pet: Pet;
-  selected?: boolean;
+  selected?: boolean | null;
 };
 
-export function PetCard({ onPress, pet, selected = false }: PetCardProps) {
+export function PetCard({ onPress, pet, selected = null }: PetCardProps) {
+  const selectable = typeof selected === "boolean";
+
   return (
     <Pressable
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected }}
+      accessibilityRole={selectable ? "checkbox" : "button"}
+      accessibilityState={selectable ? { checked: selected } : undefined}
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
@@ -28,9 +30,13 @@ export function PetCard({ onPress, pet, selected = false }: PetCardProps) {
           {pet.age} old | {pet.weight}
         </Text>
       </View>
-      <View style={[styles.selectCircle, selected && styles.selectCircleActive]}>
-        {selected ? <Icon color={colors.ivory} name="check" size={13} /> : null}
-      </View>
+      {selectable ? (
+        <View style={[styles.selectCircle, selected && styles.selectCircleActive]}>
+          {selected ? <Icon color={colors.ivory} name="check" size={13} /> : null}
+        </View>
+      ) : (
+        <Icon color={colors.warmGray} name="chevron-right" size={18} />
+      )}
     </Pressable>
   );
 }

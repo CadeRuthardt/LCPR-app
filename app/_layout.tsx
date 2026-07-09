@@ -119,6 +119,20 @@ function AuthGate() {
             title: "Request a Reservation",
           }}
         />
+        <Tabs.Screen
+          name="pet-profile"
+          options={{
+            href: null,
+            title: "Pet Profile",
+          }}
+        />
+        <Tabs.Screen
+          name="reservation-detail"
+          options={{
+            href: null,
+            title: "Reservation Details",
+          }}
+        />
       </Tabs>
     </>
   );

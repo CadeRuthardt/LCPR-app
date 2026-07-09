@@ -24,6 +24,7 @@ supabase functions deploy gingr-discovery
 The function requires a signed-in Supabase user and supports:
 
 - `locations`
+- `location-cities`
 - `reservation-types`
 - `services-by-type`
 - `current-owner`

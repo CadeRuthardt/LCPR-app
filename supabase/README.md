@@ -55,6 +55,7 @@ supabase functions deploy gingr-discovery
 Supported discovery actions:
 
 - `locations`
+- `location-cities`
 - `reservation-types`
 - `services-by-type`
 - `current-owner`
