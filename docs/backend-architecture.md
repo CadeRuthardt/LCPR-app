@@ -114,6 +114,20 @@ Rules:
 - Normalize Gingr data into app-facing models.
 - Cache briefly when needed, but treat Gingr as authoritative.
 
+### Phase 1 Discovery Implementation
+
+The first implementation should be a Supabase Edge Function named `gingr-discovery`.
+
+Responsibilities:
+
+- Store `GINGR_BASE_URL` and `GINGR_API_KEY` as Supabase secrets.
+- Require a valid Supabase session before any Gingr call.
+- Support a small allowlist of read-only discovery actions.
+- Use the signed-in user's email for client lookup.
+- Return redacted discovery responses for inspection.
+
+This function should not become the final normalized API. It is a controlled bridge for learning the Gingr response shapes before replacing temporary seeded pets and reservation placeholders.
+
 ## Reservation Request Service
 
 Owns reservation requests before they become Gingr reservations.

@@ -15,16 +15,19 @@ import * as React from "react";
 import { Button, Card, Icon, Text, TextField } from "@/components/primitives";
 import { resortImages } from "@/data/mock-data";
 import { colors, fonts, radius, spacing } from "@/theme";
-import { useMockSession } from "@/utils/mock-session";
+import { getFriendlyAuthError } from "@/utils/auth-errors";
+import { useSession } from "@/utils/session";
 
-const prototypeCode = "248624";
 const logo = require("../../assets/logo.png");
+const otpCodeLength = 8;
 
 export function LoginScreen() {
-  const { signIn } = useMockSession();
+  const { authError, isConfigured, sendEmailCode, verifyEmailCode } = useSession();
   const [email, setEmail] = React.useState("");
   const [code, setCode] = React.useState("");
   const [codeSent, setCodeSent] = React.useState(false);
+  const [localError, setLocalError] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [keyboardVisible, setKeyboardVisible] = React.useState(false);
   const formBottom = React.useRef(new Animated.Value(spacing.xxl)).current;
 
@@ -46,24 +49,44 @@ export function LoginScreen() {
     };
   }, [formBottom]);
 
-  const cleanEmail = email.trim();
+  const cleanEmail = email.trim().toLowerCase();
   const canSendCode = cleanEmail.includes("@") && cleanEmail.includes(".");
-  const canVerifyCode = code.replace(/\D/g, "").length === 6;
+  const canVerifyCode = code.replace(/\D/g, "").length === otpCodeLength;
+  const displayedError = localError ?? authError;
 
-  function handleSendCode() {
-    if (!canSendCode) {
+  async function handleSendCode() {
+    if (!canSendCode || !isConfigured) {
       return;
     }
 
-    setCodeSent(true);
+    setIsSubmitting(true);
+    setLocalError(null);
+
+    try {
+      await sendEmailCode(cleanEmail);
+      setCodeSent(true);
+    } catch (error) {
+      setLocalError(getFriendlyAuthError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
-  function handleVerifyCode() {
-    if (!canVerifyCode) {
+  async function handleVerifyCode() {
+    if (!canVerifyCode || !isConfigured) {
       return;
     }
 
-    signIn(cleanEmail);
+    setIsSubmitting(true);
+    setLocalError(null);
+
+    try {
+      await verifyEmailCode(cleanEmail, code);
+    } catch (error) {
+      setLocalError(getFriendlyAuthError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -123,6 +146,18 @@ export function LoginScreen() {
               </Text>
             </View>
 
+            {!isConfigured ? (
+              <Text variant="caption" tone="secondary">
+                Supabase is not configured yet. Add EXPO_PUBLIC_SUPABASE_URL and
+                EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY to continue.
+              </Text>
+            ) : null}
+            {displayedError ? (
+              <Text variant="caption" tone="secondary">
+                {displayedError}
+              </Text>
+            ) : null}
+
             {!codeSent ? (
               <View style={styles.formGroup}>
                 <TextField
@@ -135,35 +170,33 @@ export function LoginScreen() {
                   value={email}
                 />
                 <Button
-                  disabled={!canSendCode}
+                  disabled={!canSendCode || !isConfigured || isSubmitting}
                   icon="chevron-right"
                   onPress={handleSendCode}
-                  title="Send Email Code"
+                  title={isSubmitting ? "Sending..." : "Send Email Code"}
                 />
               </View>
             ) : (
               <View style={styles.formGroup}>
-                <Text variant="caption" tone="muted">
-                  Prototype code: {prototypeCode}
-                </Text>
                 <TextField
                   keyboardType="number-pad"
-                  maxLength={6}
+                  maxLength={otpCodeLength}
                   onChangeText={(value) => setCode(value.replace(/\D/g, ""))}
-                  placeholder="6-digit code"
+                  placeholder={`${otpCodeLength}-digit code`}
                   textContentType="oneTimeCode"
                   value={code}
                 />
                 <Button
-                  disabled={!canVerifyCode}
+                  disabled={!canVerifyCode || isSubmitting}
                   icon="check"
                   onPress={handleVerifyCode}
-                  title="Continue"
+                  title={isSubmitting ? "Checking..." : "Continue"}
                 />
                 <Button
                   onPress={() => {
                     setCode("");
                     setCodeSent(false);
+                    setLocalError(null);
                   }}
                   title="Use a different email"
                   variant="ghost"

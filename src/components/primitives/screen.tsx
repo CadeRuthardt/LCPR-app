@@ -1,6 +1,13 @@
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import type { PropsWithChildren } from "react";
-import type { StyleProp, ViewStyle } from "react-native";
+import type { NativeScrollEvent, NativeSyntheticEvent, StyleProp, ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors, spacing } from "../../theme";
@@ -8,6 +15,9 @@ import { colors, spacing } from "../../theme";
 type ScreenProps = PropsWithChildren<{
   backgroundColor?: string;
   contentStyle?: StyleProp<ViewStyle>;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
   scroll?: boolean;
   topSafeArea?: boolean;
 }>;
@@ -16,6 +26,9 @@ export function Screen({
   backgroundColor = colors.ivory,
   children,
   contentStyle,
+  onScroll,
+  onRefresh,
+  refreshing = false,
   scroll = true,
   topSafeArea = true,
 }: ScreenProps) {
@@ -42,6 +55,17 @@ export function Screen({
           contentInsetAdjustmentBehavior="never"
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl
+                onRefresh={onRefresh}
+                refreshing={refreshing}
+                tintColor={colors.goldenrod}
+              />
+            ) : undefined
+          }
           showsVerticalScrollIndicator={false}
           style={styles.screen}
         >

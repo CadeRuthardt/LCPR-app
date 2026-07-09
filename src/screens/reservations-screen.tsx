@@ -1,13 +1,13 @@
 import { Image, StyleSheet, View } from "react-native";
 
-import { StayCard } from "@/components/composites";
-import { Badge, Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
-import { pets, stays, upcomingStay } from "@/data/mock-data";
+import { ReservationCard } from "@/components/composites";
+import { Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
+import { pets, reservations, upcomingReservation } from "@/data/mock-data";
 import { colors, radius, spacing } from "@/theme";
 
 import { ScreenHeader } from "./screen-header";
 
-export function StaysScreen() {
+export function ReservationsScreen() {
   return (
     <Screen>
       <ScreenHeader title="Reservations" />
@@ -21,13 +21,13 @@ export function StaysScreen() {
         ))}
       </View>
 
-      <Card variant="elevated" style={styles.stayDetailsCard}>
+      <Card variant="elevated" style={styles.reservationDetailsCard}>
         <View style={styles.petRow}>
           <Image source={{ uri: pets[0].imageUrl }} style={styles.petAvatar} />
           <View style={styles.petRowCopy}>
-            <Text variant="title">{upcomingStay.dateRange}</Text>
+            <Text variant="title">{upcomingReservation.dateRange}</Text>
             <Text variant="caption" tone="secondary">
-              {upcomingStay.nights}
+              {upcomingReservation.nights}
             </Text>
             <Text variant="caption" tone="muted">
               Confirmation pending
@@ -63,57 +63,49 @@ export function StaysScreen() {
       </Card>
 
       <Section title="Upcoming Requests">
-        <StayCard stay={stays[1]} />
+        <ReservationCard reservation={reservations[1]} />
       </Section>
       <Section title="Past Reservations">
-        <StayCard stay={stays[2]} />
+        <ReservationCard reservation={reservations[2]} />
       </Section>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  segmented: {
-    backgroundColor: colors.parchment,
-    borderRadius: radius.pill,
-    flexDirection: "row",
-    gap: spacing.xs,
-    padding: spacing.xs,
-  },
-  segment: {
-    alignItems: "center",
-    borderRadius: radius.pill,
+  bringCopy: {
     flex: 1,
-    paddingVertical: spacing.md,
+    gap: spacing.xxs,
   },
-  segmentActive: {
-    backgroundColor: colors.blackCherry,
-  },
-  stayDetailsCard: {
-    gap: spacing.lg,
-  },
-  petRow: {
+  bringIcon: {
     alignItems: "center",
+    backgroundColor: colors.blush,
+    borderRadius: radius.pill,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  bringRow: {
+    alignItems: "center",
+    borderTopColor: colors.creamBorder,
+    borderTopWidth: 1,
     flexDirection: "row",
     gap: spacing.md,
+    paddingTop: spacing.lg,
   },
   petAvatar: {
     borderRadius: 28,
     height: 56,
     width: 56,
   },
+  petRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+  },
   petRowCopy: {
     flex: 1,
     gap: spacing.xxs,
-  },
-  progressRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  progressStep: {
-    alignItems: "center",
-    flex: 1,
-    gap: spacing.xs,
   },
   progressDot: {
     alignItems: "center",
@@ -131,24 +123,32 @@ const styles = StyleSheet.create({
   progressLabel: {
     textAlign: "center",
   },
-  bringRow: {
-    alignItems: "center",
-    borderTopColor: colors.creamBorder,
-    borderTopWidth: 1,
+  progressRow: {
     flexDirection: "row",
-    gap: spacing.md,
-    paddingTop: spacing.lg,
+    justifyContent: "space-between",
   },
-  bringIcon: {
+  progressStep: {
     alignItems: "center",
-    backgroundColor: colors.blush,
-    borderRadius: radius.pill,
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  bringCopy: {
     flex: 1,
-    gap: spacing.xxs,
+    gap: spacing.xs,
+  },
+  reservationDetailsCard: {
+    gap: spacing.lg,
+  },
+  segment: {
+    alignItems: "center",
+    borderRadius: radius.pill,
+    flex: 1,
+    paddingVertical: spacing.md,
+  },
+  segmentActive: {
+    backgroundColor: colors.blackCherry,
+  },
+  segmented: {
+    backgroundColor: colors.parchment,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: spacing.xs,
+    padding: spacing.xs,
   },
 });

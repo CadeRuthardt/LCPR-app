@@ -3,9 +3,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button, Icon, Screen, Section, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
-import { guest } from "@/data/mock-data";
 import { colors, radius, spacing } from "@/theme";
-import { useMockSession } from "@/utils/mock-session";
+import { useSession } from "@/utils/session";
 
 const accountRows: Array<{ icon: IconName; label: string }> = [
   { icon: "user", label: "Personal Information" },
@@ -21,20 +20,23 @@ const supportRows: Array<{ icon: IconName; label: string }> = [
 ];
 
 export function ProfileScreen() {
-  const { signOut } = useMockSession();
+  const { client, signOut, user } = useSession();
   const insets = useSafeAreaInsets();
+  const displayName = client?.display_name ?? "Le Chateau Guest";
+  const email = client?.email ?? user?.email ?? "";
+  const initials = getInitials(displayName);
 
   return (
     <Screen contentStyle={styles.content} topSafeArea={false}>
       <View style={[styles.profileHero, { paddingTop: insets.top + spacing.xxl }]}>
         <Text variant="display" tone="accent" style={styles.profileMonogram}>
-          SC
+          {initials}
         </Text>
         <Text variant="heading" tone="inverse">
-          {guest.firstName} {guest.lastName}
+          {displayName}
         </Text>
         <Text variant="caption" tone="inverse">
-          {guest.email}
+          {email}
         </Text>
       </View>
 
@@ -56,13 +58,27 @@ export function ProfileScreen() {
 
       <Button
         icon="log-out"
-        onPress={signOut}
+        onPress={() => {
+          void signOut();
+        }}
         title="Log Out"
         variant="secondary"
         style={styles.logoutButton}
       />
     </Screen>
   );
+}
+
+function getInitials(displayName: string) {
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  return initials || "LC";
 }
 
 function ProfileRow({ icon, label }: { icon: IconName; label: string }) {

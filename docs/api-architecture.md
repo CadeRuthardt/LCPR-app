@@ -152,6 +152,30 @@ Example endpoint groups:
 
 ---
 
+# Phase 1 Gingr Discovery Boundary
+
+Phase 1 should start with a read-only discovery layer before replacing temporary seed data.
+
+The mobile app should call Supabase only. Gingr credentials must live in Supabase Edge Function secrets, never in Expo public environment variables.
+
+Initial discovery actions:
+
+- Locations
+- Reservation types
+- Services by reservation type
+- Current signed-in owner by email
+- Current signed-in owner reservation snapshot
+
+Discovery rules:
+
+- Use the authenticated Supabase user's email for owner lookup.
+- Do not allow arbitrary client email searches from the app.
+- Redact secret-like fields before returning responses.
+- Inspect and normalize response shapes before wiring production UI.
+- Do not persist Gingr-owned data as permanent app records.
+
+---
+
 # Future Integrations
 
 Potential backend integrations:

@@ -21,6 +21,7 @@ export const colors = {
   shadowTint: "#2A0707",
   overlayDark: "rgba(17, 17, 17, 0.38)",
   overlayDeep: "rgba(17, 17, 17, 0.58)",
+  overlayHero: "rgba(17, 17, 17, 0.62)",
   overlayBurgundy: "rgba(43, 3, 4, 0.94)",
   overlayIvory: "rgba(250, 250, 240, 0.2)",
   overlayIvoryStrong: "rgba(250, 250, 240, 0.35)",

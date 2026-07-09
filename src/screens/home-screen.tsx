@@ -1,37 +1,68 @@
 import { router } from "expo-router";
+import * as React from "react";
+import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Image, ImageBackground, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button, Icon, Screen, Text } from "@/components/primitives";
-import { guest, pets, resortImages } from "@/data/mock-data";
+import { guest, resortImages } from "@/data/mock-data";
 import { colors, fonts, radius, spacing } from "@/theme";
 import { getTimeOfDayGreeting } from "@/utils/greeting";
 
 const logo = require("../../assets/logo.png");
-const premiumHall = require("../../assets/premium-hall.png");
+const heroImageUrl =
+  "https://i0.wp.com/lechateaupetresort.com/wp-content/uploads/2025/09/dogs-in-yard.jpg?resize=1024%2C768&ssl=1";
+const releaseToRefreshThreshold = -132;
 
 export function HomeScreen() {
-  const featuredPet = pets[0];
   const greeting = getTimeOfDayGreeting();
   const insets = useSafeAreaInsets();
+  const [showRefreshPrompt, setShowRefreshPrompt] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+  function handleRefresh() {
+    setIsRefreshing(true);
+    setShowRefreshPrompt(true);
+    window.setTimeout(() => {
+      setIsRefreshing(false);
+      setShowRefreshPrompt(false);
+    }, 500);
+  }
+
+  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const offsetY = event.nativeEvent.contentOffset.y;
+
+    setShowRefreshPrompt(offsetY <= releaseToRefreshThreshold || isRefreshing);
+  }
 
   return (
     <Screen
       backgroundColor={colors.onyx}
       contentStyle={[styles.content, { paddingTop: insets.top + spacing.sm }]}
+      onScroll={handleScroll}
+      onRefresh={handleRefresh}
+      refreshing={isRefreshing}
       topSafeArea={false}
     >
+      <View style={styles.refreshPromptSlot}>
+        {showRefreshPrompt ? (
+          <View style={styles.refreshPrompt}>
+            <Icon color={colors.goldenrod} name="refresh" size={16} />
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.logoWrap}>
+        <Image source={logo} style={styles.logoImage} />
+      </View>
+
       <ImageBackground
-        source={premiumHall}
+        source={{ uri: heroImageUrl }}
         imageStyle={styles.heroImage}
         resizeMode="cover"
         style={styles.hero}
       >
         <View style={styles.heroOverlay}>
-          <View style={styles.topBar}>
-            <Image source={logo} style={styles.logoImage} />
-          </View>
-
           <View style={styles.heroCopy}>
             <Text variant="body" tone="inverse">
               {greeting},
@@ -60,7 +91,7 @@ export function HomeScreen() {
               </Text>
               <Button
                 icon="chevron-right"
-                onPress={() => router.push("/request-stay")}
+                onPress={() => router.push("/request-reservation")}
                 title="Request a Reservation"
                 variant="secondary"
               />
@@ -108,6 +139,7 @@ export function HomeScreen() {
           </Text>
         </View>
       </ImageBackground>
+
     </Screen>
   );
 }
@@ -116,34 +148,35 @@ const styles = StyleSheet.create({
   content: {
     backgroundColor: colors.onyx,
     gap: spacing.md,
+    paddingBottom: 88,
     paddingHorizontal: spacing.md,
+  },
+  logoImage: {
+    height: 106,
+    resizeMode: "contain",
+    width: 190,
+  },
+  logoWrap: {
+    alignItems: "center",
+    paddingBottom: 0,
   },
   hero: {
     borderColor: colors.overlayIvoryStrong,
     borderRadius: radius.xl,
     borderWidth: 1,
-    minHeight: 520,
+    minHeight: 440,
     overflow: "hidden",
   },
   heroImage: {
     borderRadius: radius.xl,
   },
   heroOverlay: {
-    backgroundColor: colors.overlayDeep,
+    backgroundColor: colors.overlayHero,
     flex: 1,
-    gap: spacing.lg,
+    gap: spacing.md,
     justifyContent: "space-between",
     padding: spacing.lg,
-    paddingTop: spacing.xxl,
-  },
-  topBar: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoImage: {
-    height: 82,
-    resizeMode: "contain",
-    width: 126,
+    paddingTop: spacing.xl,
   },
   heroCopy: {
     gap: spacing.xxs,
@@ -177,6 +210,17 @@ const styles = StyleSheet.create({
   requestPanelCopy: {
     flex: 1,
     gap: spacing.sm,
+  },
+  refreshPrompt: {
+    alignItems: "center",
+    alignSelf: "center",
+    justifyContent: "center",
+    minHeight: 24,
+  },
+  refreshPromptSlot: {
+    alignItems: "center",
+    height: 24,
+    justifyContent: "center",
   },
   liveCard: {
     backgroundColor: colors.richMahogany,

@@ -1,4 +1,4 @@
-import type { ExploreFeature, Pet, Stay } from "../types/app";
+import type { ExploreFeature, Pet, Reservation } from "../types/app";
 
 export const guest = {
   firstName: "Cade",
@@ -16,6 +16,7 @@ export const pets: Pet[] = [
     careNote: "Playful, social, and happiest with a little extra outdoor time.",
     status: "Active",
     vaccinationSummary: "Records are up to date for the season.",
+    weight: "68 lbs",
     imageUrl:
       "https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&w=900&q=80",
   },
@@ -27,6 +28,7 @@ export const pets: Pet[] = [
     careNote: "Enjoys quiet suites, window perches, and gentle brushing.",
     status: "Active",
     vaccinationSummary: "Records look complete for the season.",
+    weight: "12 lbs",
     imageUrl:
       "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&w=900&q=80",
   },
@@ -38,13 +40,14 @@ export const pets: Pet[] = [
     careNote: "Prefers calm spaces and a familiar blanket from home.",
     status: "Active",
     vaccinationSummary: "Rabies renewal is due before the next reservation.",
+    weight: "10 lbs",
     imageUrl:
       "https://images.unsplash.com/photo-1573865526739-10659fec78a5?auto=format&fit=crop&w=900&q=80",
   },
 ];
 
-export const upcomingStay: Stay = {
-  id: "stay-preview",
+export const upcomingReservation: Reservation = {
+  id: "reservation-preview",
   petName: "Baelfire",
   dateRange: "July 18 - July 22, 2025",
   nights: "4 nights",
@@ -52,10 +55,10 @@ export const upcomingStay: Stay = {
   status: "Confirmed",
 };
 
-export const stays: Stay[] = [
-  upcomingStay,
+export const reservations: Reservation[] = [
+  upcomingReservation,
   {
-    id: "stay-request",
+    id: "reservation-request",
     petName: "Moe",
     dateRange: "August 8 - August 12, 2025",
     nights: "4 nights",
@@ -63,7 +66,7 @@ export const stays: Stay[] = [
     status: "Under Review",
   },
   {
-    id: "stay-past",
+    id: "reservation-past",
     petName: "Baelfire",
     dateRange: "April 2 - April 6, 2025",
     nights: "4 nights",

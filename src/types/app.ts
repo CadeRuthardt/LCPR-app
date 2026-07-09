@@ -1,4 +1,4 @@
-export type TabKey = "home" | "pets" | "stays" | "explore" | "profile";
+export type TabKey = "home" | "pets" | "reservations" | "explore" | "profile";
 
 export type Pet = {
   id: string;
@@ -8,10 +8,11 @@ export type Pet = {
   careNote: string;
   status: "Active" | "Wellness";
   vaccinationSummary: string;
+  weight: string;
   imageUrl: string;
 };
 
-export type Stay = {
+export type Reservation = {
   id: string;
   nights: string;
   petName: string;

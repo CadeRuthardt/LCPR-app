@@ -7,6 +7,7 @@ import {
   faChevronRight,
   faCircleInfo,
   faCircleQuestion,
+  faClock,
   faCompass,
   faCreditCard,
   faEllipsis,
@@ -17,11 +18,13 @@ import {
   faPaw,
   faPlus,
   faRightFromBracket,
+  faRotateRight,
   faShieldHalved,
   faStar,
   faUser,
   faUtensils,
   faWandMagicSparkles,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 
@@ -30,6 +33,7 @@ export type IconName =
   | "calendar"
   | "check"
   | "chevron-right"
+  | "clock"
   | "ellipsis"
   | "compass"
   | "credit-card"
@@ -42,11 +46,13 @@ export type IconName =
   | "mail"
   | "paw"
   | "plus"
+  | "refresh"
   | "shield"
   | "sparkles"
   | "star"
   | "user"
-  | "utensils";
+  | "utensils"
+  | "x";
 
 type IconProps = {
   color: ColorValue;
@@ -59,6 +65,7 @@ const icons: Record<IconName, IconDefinition> = {
   calendar: faCalendarDays,
   check: faCheck,
   "chevron-right": faChevronRight,
+  clock: faClock,
   ellipsis: faEllipsis,
   compass: faCompass,
   "credit-card": faCreditCard,
@@ -71,11 +78,13 @@ const icons: Record<IconName, IconDefinition> = {
   mail: faEnvelope,
   paw: faPaw,
   plus: faPlus,
+  refresh: faRotateRight,
   shield: faShieldHalved,
   sparkles: faWandMagicSparkles,
   star: faStar,
   user: faUser,
   utensils: faUtensils,
+  x: faXmark,
 };
 
 export function Icon({ color, name, size = 22 }: IconProps) {

@@ -25,7 +25,7 @@ export function PetCard({ onPress, pet, selected = false }: PetCardProps) {
           {pet.breed}
         </Text>
         <Text variant="caption" tone="secondary">
-          {pet.age} old | {pet.name === "Baelfire" ? "68 lbs" : pet.name === "Moe" ? "12 lbs" : "10 lbs"}
+          {pet.age} old | {pet.weight}
         </Text>
       </View>
       <View style={[styles.selectCircle, selected && styles.selectCircleActive]}>

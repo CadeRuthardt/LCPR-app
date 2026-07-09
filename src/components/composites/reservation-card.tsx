@@ -1,33 +1,32 @@
 import { StyleSheet, View } from "react-native";
 
+import { colors, spacing } from "../../theme";
+import type { Reservation } from "../../types/app";
 import { Badge, Button, Card, Icon, Text } from "../primitives";
-import { colors } from "../../theme";
-import { spacing } from "../../theme";
-import type { Stay } from "../../types/app";
 
-type StayCardProps = {
-  stay: Stay;
+type ReservationCardProps = {
   featured?: boolean;
+  reservation: Reservation;
 };
 
-export function StayCard({ featured = false, stay }: StayCardProps) {
+export function ReservationCard({ featured = false, reservation }: ReservationCardProps) {
   const textTone = featured ? "inverse" : "primary";
   const supportTone = featured ? "inverse" : "muted";
 
   return (
     <Card variant={featured ? "featured" : "default"} style={styles.card}>
       <View style={styles.header}>
-        <Badge label={stay.status} tone={featured ? "success" : "accent"} />
+        <Badge label={reservation.status} tone={featured ? "success" : "accent"} />
         <Text variant="caption" tone={supportTone}>
-          {stay.dateRange}
+          {reservation.dateRange}
         </Text>
       </View>
       <View style={styles.copy}>
         <Text variant="heading" tone={textTone}>
-          {stay.petName}'s reservation
+          {reservation.petName}'s reservation
         </Text>
         <Text variant="body" tone={supportTone}>
-          {stay.experience} · {stay.nights}
+          {reservation.experience} · {reservation.nights}
         </Text>
       </View>
       {featured ? (
@@ -48,11 +47,6 @@ const styles = StyleSheet.create({
   card: {
     gap: spacing.lg,
   },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
   copy: {
     gap: spacing.sm,
   },
@@ -61,5 +55,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.xs,
     justifyContent: "flex-end",
+  },
+  header: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
 });

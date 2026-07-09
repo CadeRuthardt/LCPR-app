@@ -14,15 +14,15 @@ import { StatusBar } from "expo-status-bar";
 import type { StatusBarStyle } from "expo-status-bar";
 
 import { colors, fonts, shadows, spacing } from "@/theme";
-import { Icon } from "@/components/primitives";
+import { Icon, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
 import { LoginScreen } from "@/screens";
-import { MockSessionProvider, useMockSession } from "@/utils/mock-session";
+import { SessionProvider, useSession } from "@/utils/session";
 
 const tabs = [
   { name: "index", title: "Home", icon: "home" },
   { name: "pets", title: "Pets", icon: "paw" },
-  { name: "stays", title: "Reservations", icon: "calendar" },
+  { name: "reservations", title: "Reservations", icon: "calendar" },
   { name: "explore", title: "Explore", icon: "compass" },
   { name: "profile", title: "Profile", icon: "user" },
 ] as const;
@@ -42,18 +42,27 @@ export default function RootLayout() {
   }
 
   return (
-    <MockSessionProvider>
+    <SessionProvider>
       <AuthGate />
-    </MockSessionProvider>
+    </SessionProvider>
   );
 }
 
 function AuthGate() {
-  const { isSignedIn } = useMockSession();
+  const { isLoading, isSignedIn } = useSession();
   const segments = useSegments();
   const activeRoute = segments[0] ?? "index";
   const statusBarStyle: StatusBarStyle =
     !isSignedIn || activeRoute === "index" || activeRoute === "profile" ? "light" : "dark";
+
+  if (isLoading) {
+    return (
+      <>
+        <StatusBar animated style="light" />
+        <LoadingScreen />
+      </>
+    );
+  }
 
   if (!isSignedIn) {
     return (
@@ -104,7 +113,7 @@ function AuthGate() {
           />
         ))}
         <Tabs.Screen
-          name="request-stay"
+          name="request-reservation"
           options={{
             href: null,
             title: "Request a Reservation",
@@ -124,4 +133,21 @@ function TabIcon({
   name: IconName;
 }) {
   return <Icon color={color} name={name} size={21} />;
+}
+
+function LoadingScreen() {
+  return (
+    <Text
+      tone="inverse"
+      variant="body"
+      style={{
+        backgroundColor: colors.onyx,
+        flex: 1,
+        paddingTop: spacing.display,
+        textAlign: "center",
+      }}
+    >
+      Preparing your stay...
+    </Text>
+  );
 }
