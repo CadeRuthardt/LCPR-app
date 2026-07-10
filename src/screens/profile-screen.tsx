@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Image, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { DeveloperDataPanel } from "@/components/composites";
 import { Button, Icon, Screen, Section, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
 import { getCurrentClientOwnerProfileForApp } from "@/services/client-data";
@@ -127,25 +128,10 @@ export function ProfileScreen() {
 
       {rawOwner ? (
         <View style={styles.sectionWrap}>
-          <Section
-            title="Developer Data"
+          <DeveloperDataPanel
+            records={[{ title: "Raw Owner", data: rawOwner }]}
             subtitle="Temporary raw Gingr owner fields for choosing what to keep."
-            headerStyle={styles.sectionHeader}
-          >
-            <View style={styles.rawPanel}>
-              <View style={styles.rawHeader}>
-                <Text variant="title">Raw Owner</Text>
-                <Text variant="caption" tone="muted">
-                  {Object.keys(rawOwner).length} fields
-                </Text>
-              </View>
-              {Object.entries(rawOwner)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([key, value]) => (
-                  <RawRow key={key} label={key} value={formatRawValue(value)} />
-                ))}
-            </View>
-          </Section>
+          />
         </View>
       ) : null}
 
@@ -239,39 +225,6 @@ function formatDebugError(error: unknown) {
   }
 
   return "Gingr discovery request failed.";
-}
-
-function formatRawValue(value: unknown) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function RawRow({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <View style={styles.rawRow}>
-      <Text variant="caption" tone="muted" style={styles.rawLabel}>
-        {label}
-      </Text>
-      <Text selectable variant="caption" tone={value ? "secondary" : "muted"} style={styles.rawValue}>
-        {value || "Empty"}
-      </Text>
-    </View>
-  );
 }
 
 function ProfileRow({ icon, label }: { icon: IconName; label: string }) {

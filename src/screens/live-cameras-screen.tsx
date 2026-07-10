@@ -242,7 +242,7 @@ const cameraLocations: CameraLocation[] = [
   {
     cameras: [
       {
-        availability: "Live during resort camera hours",
+        availability: "Available during resort camera hours",
         description: "Resort views will appear here as cameras come online.",
         id: "nb-resort",
         imageUrl: resortImages.playYard,
@@ -337,7 +337,6 @@ function CameraPlayer({
   onSelectCamera: (camera: CameraPreview | null) => void;
 }) {
   const isVipCamera = camera?.label === "VIP";
-  const isLiveNow = camera ? isCameraLiveNow(camera) : false;
 
   return (
     <Screen contentStyle={styles.viewerContent}>
@@ -386,14 +385,6 @@ function CameraPlayer({
       ) : null}
 
       <View style={styles.playerFrame}>
-        {isLiveNow ? (
-          <View style={styles.playerLiveBadge}>
-            <Icon color={colors.goldenrod} name="video" size={13} />
-            <Text variant="label" tone="inverse">
-              Live
-            </Text>
-          </View>
-        ) : null}
         {camera ? (
           camera.url ? (
             <WebView
@@ -462,15 +453,6 @@ function CameraPlayer({
 
     </Screen>
   );
-}
-
-function isCameraLiveNow(camera: CameraPreview) {
-  if (camera.label === "VIP") {
-    return true;
-  }
-
-  const currentHour = new Date().getHours();
-  return currentHour >= 8 && currentHour < 17;
 }
 
 function InfoCard({
@@ -793,19 +775,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     height: 330,
     overflow: "hidden",
-  },
-  playerLiveBadge: {
-    alignItems: "center",
-    backgroundColor: colors.blackCherry,
-    borderRadius: radius.md,
-    flexDirection: "row",
-    gap: spacing.xs,
-    left: spacing.lg,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    position: "absolute",
-    top: spacing.lg,
-    zIndex: 2,
   },
   playerUnavailable: {
     alignItems: "center",

@@ -4,9 +4,11 @@ import {
   faBell,
   faCalendarDays,
   faCamera,
+  faChevronDown,
   faChevronLeft,
   faCheck,
   faChevronRight,
+  faChevronUp,
   faCircleInfo,
   faCircleQuestion,
   faClock,
@@ -36,8 +38,10 @@ export type IconName =
   | "calendar"
   | "camera"
   | "check"
+  | "chevron-down"
   | "chevron-left"
   | "chevron-right"
+  | "chevron-up"
   | "clock"
   | "ellipsis"
   | "compass"
@@ -71,8 +75,10 @@ const icons: Record<IconName, IconDefinition> = {
   calendar: faCalendarDays,
   camera: faCamera,
   check: faCheck,
+  "chevron-down": faChevronDown,
   "chevron-left": faChevronLeft,
   "chevron-right": faChevronRight,
+  "chevron-up": faChevronUp,
   clock: faClock,
   ellipsis: faEllipsis,
   compass: faCompass,

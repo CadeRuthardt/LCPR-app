@@ -12,6 +12,7 @@ import {
   Section,
   Text,
 } from "@/components/primitives";
+import { DeveloperDataPanel } from "@/components/composites";
 import { resortImages } from "@/data/mock-data";
 import { getClientReservationDetailForApp } from "@/services/client-data";
 import { colors, fonts, radius, spacing } from "@/theme";
@@ -263,46 +264,16 @@ function ReservationDetailContent({
           title="Developer Data"
           subtitle="Temporary raw Gingr fields for choosing what to keep."
         >
-          {detail.rawReservations.map((reservation, index) => (
-            <RawReservationCard
-              key={`${detail.id}-raw-${index}`}
-              index={index}
-              reservation={reservation}
-            />
-          ))}
+          <DeveloperDataPanel
+            records={detail.rawReservations.map((reservation, index) => ({
+              data: reservation,
+              title: `Raw Reservation ${index + 1}`,
+            }))}
+            subtitle=""
+          />
         </Section>
       ) : null}
     </>
-  );
-}
-
-function RawReservationCard({
-  index,
-  reservation,
-}: {
-  index: number;
-  reservation: Record<string, unknown>;
-}) {
-  const entries = Object.entries(reservation).sort(([a], [b]) => a.localeCompare(b));
-
-  return (
-    <Card style={styles.rawCard}>
-      <View style={styles.rawHeader}>
-        <Text variant="title">Raw Reservation {index + 1}</Text>
-        <Text variant="caption" tone="muted">
-          {entries.length} fields
-        </Text>
-      </View>
-
-      {entries.map(([key, value]) => (
-        <FieldRow
-          key={`${index}-${key}`}
-          label={key}
-          value={formatRawValue(value)}
-          emptyValue="Empty"
-        />
-      ))}
-    </Card>
   );
 }
 
@@ -612,26 +583,6 @@ function formatBooleanStatus(value: boolean | null, trueLabel: string, falseLabe
   }
 
   return value ? trueLabel : falseLabel;
-}
-
-function formatRawValue(value: unknown) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }
 
 function formatTimeOnly(value?: string | null) {

@@ -4,6 +4,7 @@ import { Image, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BackChevronButton, Card, Icon, Screen, Text } from "@/components/primitives";
+import { DeveloperDataPanel } from "@/components/composites";
 import { getCurrentClientPetForApp } from "@/services/client-data";
 import { colors, radius, spacing } from "@/theme";
 import type { Pet, PetFeedingSchedule, PetImmunization, PetMedicationSchedule } from "@/types/app";
@@ -126,19 +127,10 @@ export function PetProfileScreen() {
           </Card>
 
           {pet.rawData ? (
-            <Card variant="elevated" style={styles.rawCard}>
-              <View style={styles.rawHeader}>
-                <Text variant="title">Developer Data</Text>
-                <Text variant="caption" tone="muted">
-                  {Object.keys(pet.rawData).length} fields
-                </Text>
-              </View>
-              {Object.entries(pet.rawData)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([key, value]) => (
-                  <FieldRow key={key} label={key} value={formatRawValue(value)} />
-                ))}
-            </Card>
+            <DeveloperDataPanel
+              records={[{ title: "Raw Pet", data: pet.rawData }]}
+              subtitle="Temporary raw Gingr pet fields for choosing what to keep."
+            />
           ) : null}
         </View>
       ) : null}
@@ -346,26 +338,6 @@ function formatMedicationDates(startDate: string | null, endDate: string | null)
   }
 
   return startDate ? `Starts ${formatIsoDate(startDate)}` : `Ends ${formatIsoDate(endDate)}`;
-}
-
-function formatRawValue(value: unknown) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }
 
 const styles = StyleSheet.create({
