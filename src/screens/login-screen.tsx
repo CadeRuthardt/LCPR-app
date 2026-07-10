@@ -20,11 +20,15 @@ import { useSession } from "@/utils/session";
 
 const logo = require("../../assets/logo.png");
 const otpCodeLength = 8;
+type LoginMode = "emailCode" | "password";
 
 export function LoginScreen() {
-  const { authError, isConfigured, sendEmailCode, verifyEmailCode } = useSession();
+  const { authError, isConfigured, sendEmailCode, signInWithPassword, verifyEmailCode } =
+    useSession();
+  const [loginMode, setLoginMode] = React.useState<LoginMode>("emailCode");
   const [email, setEmail] = React.useState("");
   const [code, setCode] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [codeSent, setCodeSent] = React.useState(false);
   const [localError, setLocalError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -52,7 +56,19 @@ export function LoginScreen() {
   const cleanEmail = email.trim().toLowerCase();
   const canSendCode = cleanEmail.includes("@") && cleanEmail.includes(".");
   const canVerifyCode = code.replace(/\D/g, "").length === otpCodeLength;
+  const canUsePassword = canSendCode && password.length > 0;
   const displayedError = localError ?? authError;
+  const isPasswordMode = loginMode === "password";
+  const headerTitle = isPasswordMode
+    ? "Login with password"
+    : codeSent
+      ? "Enter your email code"
+      : "Continue with email";
+  const headerBody = isPasswordMode
+    ? "Use the App Review or approved test account credentials."
+    : codeSent
+      ? `We sent a one-time code to ${cleanEmail}.`
+      : "Use the email on file with Le Chateau. We will send a one-time code.";
 
   async function handleSendCode() {
     if (!canSendCode || !isConfigured) {
@@ -86,6 +102,34 @@ export function LoginScreen() {
       setLocalError(getFriendlyAuthError(error));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handlePasswordLogin() {
+    if (!canUsePassword || !isConfigured) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setLocalError(null);
+
+    try {
+      await signInWithPassword(cleanEmail, password);
+    } catch (error) {
+      setLocalError(getFriendlyAuthError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function switchLoginMode(nextMode: LoginMode) {
+    setLoginMode(nextMode);
+    setCode("");
+    setCodeSent(false);
+    setLocalError(null);
+
+    if (nextMode === "emailCode") {
+      setPassword("");
     }
   }
 
@@ -136,13 +180,9 @@ export function LoginScreen() {
         <Animated.View style={[styles.formLayer, { bottom: formBottom }]}>
           <Card variant="elevated" style={styles.loginCard}>
             <View style={styles.cardHeaderCopy}>
-              <Text variant="heading">
-                {codeSent ? "Enter your email code" : "Continue with email"}
-              </Text>
+              <Text variant="heading">{headerTitle}</Text>
               <Text variant="body" tone="secondary">
-                {codeSent
-                  ? `We sent a one-time code to ${cleanEmail}.`
-                  : "Use the email on file with Le Chateau. We will send a one-time code."}
+                {headerBody}
               </Text>
             </View>
 
@@ -158,7 +198,39 @@ export function LoginScreen() {
               </Text>
             ) : null}
 
-            {!codeSent ? (
+            {isPasswordMode ? (
+              <View style={styles.formGroup}>
+                <TextField
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  onChangeText={setEmail}
+                  placeholder="Email"
+                  textContentType="username"
+                  value={email}
+                />
+                <TextField
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={setPassword}
+                  placeholder="Password"
+                  secureTextEntry
+                  textContentType="password"
+                  value={password}
+                />
+                <Button
+                  disabled={!canUsePassword || !isConfigured || isSubmitting}
+                  icon="chevron-right"
+                  onPress={handlePasswordLogin}
+                  title={isSubmitting ? "Signing in..." : "Sign In"}
+                />
+                <Button
+                  onPress={() => switchLoginMode("emailCode")}
+                  title="Use email code instead"
+                  variant="ghost"
+                />
+              </View>
+            ) : !codeSent ? (
               <View style={styles.formGroup}>
                 <TextField
                   autoCapitalize="none"
@@ -174,6 +246,11 @@ export function LoginScreen() {
                   icon="chevron-right"
                   onPress={handleSendCode}
                   title={isSubmitting ? "Sending..." : "Send Email Code"}
+                />
+                <Button
+                  onPress={() => switchLoginMode("password")}
+                  title="Login with password"
+                  variant="ghost"
                 />
               </View>
             ) : (

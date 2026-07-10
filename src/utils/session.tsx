@@ -14,6 +14,7 @@ type SessionContextValue = {
   isSignedIn: boolean;
   sendEmailCode: (email: string) => Promise<void>;
   session: Session | null;
+  signInWithPassword: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   user: User | null;
   verifyEmailCode: (email: string, code: string) => Promise<void>;
@@ -131,6 +132,25 @@ export function SessionProvider({ children }: SessionProviderProps) {
     [loadClient],
   );
 
+  const signInWithPassword = React.useCallback(
+    async (email: string, password: string) => {
+      setAuthError(null);
+
+      const { data, error } = await requireSupabase().auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        setAuthError(getFriendlyAuthError(error));
+        throw error;
+      }
+
+      await loadClient(data.session);
+    },
+    [loadClient],
+  );
+
   const signOut = React.useCallback(async () => {
     setAuthError(null);
 
@@ -155,6 +175,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       isSignedIn: Boolean(session?.user),
       sendEmailCode,
       session,
+      signInWithPassword,
       signOut,
       user: session?.user ?? null,
       verifyEmailCode,
@@ -165,6 +186,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       isLoading,
       sendEmailCode,
       session,
+      signInWithPassword,
       signOut,
       verifyEmailCode,
     ],

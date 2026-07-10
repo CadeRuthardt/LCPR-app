@@ -9,6 +9,10 @@ export function getFriendlyAuthError(error: unknown) {
     return "We could not find that email on file yet.";
   }
 
+  if (normalized.includes("invalid login credentials")) {
+    return "That email and password did not match. Please check them and try again.";
+  }
+
   if (
     normalized.includes("le chateau client profile") ||
     normalized.includes("found this email on file") ||
