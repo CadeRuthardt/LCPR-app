@@ -14,6 +14,16 @@ import type {
 } from "@/types/database";
 import { mapGingrPetToPet, mapSeedPetToPet } from "@/utils/mappers";
 
+export type ClientDashboardData = {
+  pastReservations: ClientReservation[];
+  pets: Pet[];
+  requests: ReservationRequest[];
+  upcomingReservations: ClientReservation[];
+};
+
+let clientDashboardCache: ClientDashboardData | null = null;
+let clientDashboardRequest: Promise<ClientDashboardData> | null = null;
+
 export async function getCurrentClientProfile(userId: string) {
   const { data, error } = await requireSupabase()
     .from("client_profiles")
@@ -86,6 +96,51 @@ export async function getReservationRequests() {
   return data;
 }
 
+export function getCachedClientDashboardData() {
+  return clientDashboardCache;
+}
+
+export function clearClientDashboardCache() {
+  clientDashboardCache = null;
+  clientDashboardRequest = null;
+}
+
+export async function preloadClientDashboardData() {
+  return getCurrentClientDashboardData({ force: true });
+}
+
+export async function getCurrentClientDashboardData(options: { force?: boolean } = {}) {
+  if (!options.force && clientDashboardCache) {
+    return clientDashboardCache;
+  }
+
+  if (clientDashboardRequest) {
+    return clientDashboardRequest;
+  }
+
+  clientDashboardRequest = Promise.all([
+    getReservationRequests(),
+    getCurrentClientReservationsForApp(),
+    getCurrentClientPetsForApp(),
+  ])
+    .then(([requests, reservations, pets]) => {
+      const dashboardData = {
+        pastReservations: reservations.past,
+        pets,
+        requests,
+        upcomingReservations: reservations.upcoming,
+      };
+
+      clientDashboardCache = dashboardData;
+      return dashboardData;
+    })
+    .finally(() => {
+      clientDashboardRequest = null;
+    });
+
+  return clientDashboardRequest;
+}
+
 export async function getCurrentClientReservationsForApp() {
   try {
     const gingrReservations = await getCurrentGingrReservations();
@@ -105,13 +160,17 @@ export async function getCurrentClientReservationsForApp() {
 export async function getClientReservationDetailForApp(
   reservationIds: string[],
 ): Promise<ClientReservationDetail | null> {
-  const detail = await getGingrReservationDetail(reservationIds);
+  const [detail, pets] = await Promise.all([
+    getGingrReservationDetail(reservationIds),
+    getCurrentClientPetsForApp().catch(() => [] as Pet[]),
+  ]);
 
   if (!detail || detail.reservations.length === 0) {
     return null;
   }
 
   const primaryReservation = detail.reservations[0];
+  const petByName = new Map(pets.map((pet) => [normalizeComparableName(pet.name), pet]));
 
   return {
     ...primaryReservation,
@@ -119,7 +178,17 @@ export async function getClientReservationDetailForApp(
     dateRange: formatReservationDateRange(primaryReservation.startDate, primaryReservation.endDate),
     estimate: detail.estimate,
     id: detail.reservations.map((reservation) => reservation.id).join(","),
-    petDetails: detail.reservations.flatMap((reservation) => reservation.petDetails),
+    petDetails: detail.reservations
+      .flatMap((reservation) => reservation.petDetails)
+      .map((pet) => {
+        const profilePet = petByName.get(normalizeComparableName(pet.name));
+
+        return {
+          ...pet,
+          age: pet.age ?? profilePet?.age ?? null,
+          medicines: pet.medicines ?? profilePet?.medicines ?? profilePet?.medicationNotes ?? null,
+        };
+      }),
     rawReservations: detail.rawReservations,
   };
 }
@@ -138,6 +207,8 @@ export async function createReservationRequest(request: ReservationRequestInsert
     throw new Error(formatSupabaseError(error));
   }
 
+  clearClientDashboardCache();
+
   return data;
 }
 
@@ -153,6 +224,8 @@ export async function cancelReservationRequest(requestId: string) {
   if (error) {
     throw new Error(formatSupabaseError(error));
   }
+
+  clearClientDashboardCache();
 
   return data;
 }
@@ -170,21 +243,31 @@ function formatSupabaseError(error: {
 
 function mapGingrReservationToClientReservation(reservation: {
   animalNames: string[];
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  confirmedAt: string | null;
   endDate: string | null;
+  endDateTimeLabel: string | null;
   id: string;
   location: string | null;
   reservationType: string | null;
   startDate: string | null;
+  startDateTimeLabel: string | null;
   status: string;
 }): ClientReservation {
   return {
+    checkInAt: reservation.checkInAt,
+    checkOutAt: reservation.checkOutAt,
+    confirmedAt: reservation.confirmedAt,
     dateRange: formatReservationDateRange(reservation.startDate, reservation.endDate),
     endDate: reservation.endDate,
+    endDateTimeLabel: reservation.endDateTimeLabel,
     id: reservation.id,
     location: reservation.location,
     petNames: reservation.animalNames,
     reservationType: reservation.reservationType,
     startDate: reservation.startDate,
+    startDateTimeLabel: reservation.startDateTimeLabel,
     status: reservation.status,
   };
 }
@@ -249,6 +332,10 @@ function normalizeStatusForGrouping(status: string) {
 
 function uniquePetNames(petNames: string[]) {
   return Array.from(new Set(petNames.map((petName) => petName.trim()).filter(Boolean)));
+}
+
+function normalizeComparableName(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function compareReservationsAscending(a: ClientReservation, b: ClientReservation) {

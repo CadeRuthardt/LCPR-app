@@ -69,17 +69,23 @@ export type Reservation = {
 };
 
 export type ClientReservation = {
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  confirmedAt: string | null;
   dateRange: string;
   endDate: string | null;
+  endDateTimeLabel: string | null;
   id: string;
   location: string | null;
   petNames: string[];
   reservationType: string | null;
   startDate: string | null;
+  startDateTimeLabel: string | null;
   status: string;
 };
 
 export type ReservationDetailPet = {
+  age: string | null;
   allergies: string | null;
   breed: string | null;
   imageUrl: string | null;
@@ -138,6 +144,7 @@ export type ClientReservationDetail = {
   petDetails: ReservationDetailPet[];
   precheckCompleted: boolean | null;
   rawReservations?: Array<Record<string, unknown>>;
+  reservationSummary: string | null;
   reservationType: string | null;
   services: string | null;
   startDate: string | null;

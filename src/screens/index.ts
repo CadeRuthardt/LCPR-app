@@ -1,6 +1,7 @@
 export { ExploreScreen } from "./explore-screen";
 export { HomeScreen } from "./home-screen";
 export { LoginScreen } from "./login-screen";
+export { LiveCamerasScreen } from "./live-cameras-screen";
 export { PetsScreen } from "./pets-screen";
 export { PetProfileScreen } from "./pet-profile-screen";
 export { ProfileScreen } from "./profile-screen";

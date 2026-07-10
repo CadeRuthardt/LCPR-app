@@ -1,14 +1,13 @@
 import { router, useFocusEffect } from "expo-router";
 import * as React from "react";
-import { Image, ImageBackground, Linking, StyleSheet, View } from "react-native";
+import { Image, ImageBackground, Linking, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button, Icon, Screen, Text } from "@/components/primitives";
 import { guest, resortImages } from "@/data/mock-data";
 import {
-  getCurrentClientPetsForApp,
-  getCurrentClientReservationsForApp,
-  getReservationRequests,
+  getCachedClientDashboardData,
+  getCurrentClientDashboardData,
 } from "@/services/client-data";
 import { colors, fonts, radius, spacing } from "@/theme";
 import type { ClientReservation, Pet } from "@/types/app";
@@ -37,6 +36,8 @@ type HomePanel =
       body: string;
       icon: "calendar" | "check";
       label: string;
+      petPreviews?: HomePanelPetPreview[];
+      reservationIds?: string;
       title: string;
     }
   | {
@@ -45,18 +46,26 @@ type HomePanel =
       icon: "star";
       label: string;
       location: string | null;
+      petPreviews?: HomePanelPetPreview[];
       title: string;
     };
+
+type HomePanelPetPreview = {
+  imageUrl?: string | null;
+  name: string;
+};
 
 export function HomeScreen() {
   const greeting = getTimeOfDayGreeting();
   const insets = useSafeAreaInsets();
+  const cachedDashboardData = getCachedClientDashboardData();
   const [dashboard, setDashboard] = React.useState<HomeDashboardState>({
-    pastReservations: [],
-    pets: [],
-    requests: [],
-    upcomingReservations: [],
+    pastReservations: cachedDashboardData?.pastReservations ?? [],
+    pets: cachedDashboardData?.pets ?? [],
+    requests: cachedDashboardData?.requests ?? [],
+    upcomingReservations: cachedDashboardData?.upcomingReservations ?? [],
   });
+  const [isLoading, setIsLoading] = React.useState(!cachedDashboardData);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
@@ -68,23 +77,13 @@ export function HomeScreen() {
     setErrorMessage(null);
 
     try {
-      const [requests, reservations, pets] = await Promise.all([
-        getReservationRequests(),
-        getCurrentClientReservationsForApp(),
-        getCurrentClientPetsForApp(),
-      ]);
-
-      setDashboard({
-        pastReservations: reservations.past,
-        pets,
-        requests,
-        upcomingReservations: reservations.upcoming,
-      });
+      setDashboard(await getCurrentClientDashboardData({ force: refreshing }));
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Unable to refresh reservation status.",
       );
     } finally {
+      setIsLoading(false);
       setIsRefreshing(false);
     }
   }, []);
@@ -96,6 +95,10 @@ export function HomeScreen() {
   );
 
   const homePanel = React.useMemo(() => selectHomePanel(dashboard), [dashboard]);
+  const heroStatusLine = React.useMemo(
+    () => (isLoading ? "Preparing their resort details..." : formatHomeHeroStatusLine(dashboard)),
+    [dashboard, isLoading],
+  );
 
   function handleRefresh() {
     void loadHomeData(true);
@@ -132,27 +135,32 @@ export function HomeScreen() {
               <Icon color={colors.goldenrod} name="paw" size={28} />
             </View>
             <Text variant="title" tone="inverse">
-              Ready for their next getaway?
+              {heroStatusLine}
             </Text>
           </View>
 
           <View style={styles.requestPanel}>
-            <View style={styles.requestIcon}>
-              <Icon color={colors.goldenrod} name={homePanel.icon} size={22} />
-            </View>
+            <HomePanelVisual
+              icon={isLoading ? "paw" : homePanel.icon}
+              pets={isLoading ? [] : homePanel.petPreviews}
+            />
             <View style={styles.requestPanelCopy}>
               <Text variant="title" tone="inverse">
-                {homePanel.title}
+                {isLoading ? "Refreshing reservation details" : homePanel.title}
               </Text>
               <Text variant="caption" tone="inverse">
-                {homePanel.body}
+                {isLoading
+                  ? "We are checking your pets, requests, and Gingr reservations."
+                  : homePanel.body}
               </Text>
-              <Button
-                icon="chevron-right"
-                onPress={() => handleHomePanelAction(homePanel)}
-                title={homePanel.label}
-                variant="secondary"
-              />
+              {!isLoading ? (
+                <Button
+                  icon="chevron-right"
+                  onPress={() => handleHomePanelAction(homePanel)}
+                  title={homePanel.label}
+                  variant="secondary"
+                />
+              ) : null}
             </View>
           </View>
         </View>
@@ -166,7 +174,11 @@ export function HomeScreen() {
         </View>
       ) : null}
 
-      <View style={styles.liveCard}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push({ pathname: "/live-cameras", params: { reset: Date.now() } })}
+        style={({ pressed }) => [styles.liveCard, pressed && styles.pressedCard]}
+      >
         <View style={styles.liveCopy}>
           <Text variant="title" tone="inverse">
             Live Cameras
@@ -183,9 +195,8 @@ export function HomeScreen() {
           imageStyle={styles.liveImage}
           resizeMode="cover"
           style={styles.livePreview}
-        >
-        </ImageBackground>
-      </View>
+        />
+      </Pressable>
 
       <ImageBackground
         source={{ uri: resortImages.suite }}
@@ -225,6 +236,7 @@ function selectHomePanel(dashboard: HomeDashboardState): HomePanel {
       body: formatRequestPanelBody(actionRequiredRequest, dashboard.pets),
       icon: "calendar",
       label: "View Request",
+      petPreviews: getRequestPetPreviews(actionRequiredRequest, dashboard.pets),
       title: "Request needs attention",
     };
   }
@@ -235,7 +247,9 @@ function selectHomePanel(dashboard: HomeDashboardState): HomePanel {
       body: formatReservationPanelBody(upcomingReservation),
       icon: "check",
       label: "View Reservation",
-      title: "Reservation confirmed",
+      petPreviews: getReservationPetPreviews(upcomingReservation, dashboard.pets),
+      reservationIds: upcomingReservation.id,
+      title: formatReservationPanelTitle(upcomingReservation),
     };
   }
 
@@ -245,6 +259,7 @@ function selectHomePanel(dashboard: HomeDashboardState): HomePanel {
       body: formatRequestPanelBody(activeRequest, dashboard.pets),
       icon: "calendar",
       label: activeRequest.status === "confirmed" ? "View Confirmation" : "View Request",
+      petPreviews: getRequestPetPreviews(activeRequest, dashboard.pets),
       title: activeRequest.status === "confirmed" ? "Reservation confirmed" : "Request received",
     };
   }
@@ -260,6 +275,7 @@ function selectHomePanel(dashboard: HomeDashboardState): HomePanel {
       icon: "star",
       label: "Leave a Google Review",
       location: checkedOutReservation.location,
+      petPreviews: getReservationPetPreviews(checkedOutReservation, dashboard.pets),
       title: "How did we do?",
     };
   }
@@ -273,6 +289,56 @@ function selectHomePanel(dashboard: HomeDashboardState): HomePanel {
   };
 }
 
+function HomePanelVisual({
+  icon,
+  pets = [],
+}: {
+  icon: "calendar" | "check" | "paw" | "star";
+  pets?: HomePanelPetPreview[];
+}) {
+  const visiblePets = pets.filter((pet) => pet.imageUrl).slice(0, 2);
+
+  if (visiblePets.length === 0) {
+    return (
+      <View style={styles.requestIcon}>
+        <Icon color={colors.goldenrod} name={icon} size={22} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.requestPetStack}>
+      {visiblePets.map((pet, index) => (
+        <Image
+          key={`${pet.name}-${index}`}
+          source={{ uri: pet.imageUrl ?? undefined }}
+          style={[styles.requestPetImage, index > 0 && styles.requestPetImageOverlap]}
+        />
+      ))}
+    </View>
+  );
+}
+
+function getRequestPetPreviews(request: ReservationRequest, pets: Pet[]) {
+  return request.selected_pet_ids
+    .map((petId) => pets.find((pet) => pet.id === petId))
+    .filter((pet): pet is Pet => Boolean(pet))
+    .map((pet) => ({ imageUrl: pet.imageUrl, name: pet.name }));
+}
+
+function getReservationPetPreviews(reservation: ClientReservation, pets: Pet[]) {
+  const petByName = new Map(pets.map((pet) => [normalizePetName(pet.name), pet]));
+
+  return reservation.petNames.map((petName) => {
+    const pet = petByName.get(normalizePetName(petName));
+
+    return {
+      imageUrl: pet?.imageUrl,
+      name: petName,
+    };
+  });
+}
+
 function handleHomePanelAction(panel: HomePanel) {
   if (panel.action === "review") {
     void Linking.openURL(buildGoogleReviewUrl(panel.location));
@@ -281,6 +347,14 @@ function handleHomePanelAction(panel: HomePanel) {
 
   if (panel.title === "No reservations booked yet") {
     router.push({ pathname: "/request-reservation", params: { returnTo: "/" } });
+    return;
+  }
+
+  if (panel.reservationIds) {
+    router.push({
+      pathname: "/reservation-detail",
+      params: { reservationIds: panel.reservationIds },
+    });
     return;
   }
 
@@ -304,12 +378,42 @@ function formatRequestPanelBody(request: ReservationRequest, pets: Pet[]) {
 
 function formatReservationPanelBody(reservation: ClientReservation) {
   return [
-    reservation.petNames.join(", ") || "Your pet",
+    formatPetNameList(reservation.petNames) || "Your pet",
     reservation.dateRange,
     reservation.reservationType,
   ]
     .filter(Boolean)
     .join(" | ");
+}
+
+function formatReservationPanelTitle(reservation: ClientReservation) {
+  if (isCheckedInReservation(reservation)) {
+    const petSubject = formatPetSubject(reservation.petNames);
+
+    return `${petSubject.names} ${petSubject.verb} checked in`;
+  }
+
+  return "Reservation confirmed";
+}
+
+function formatHomeHeroStatusLine(dashboard: HomeDashboardState) {
+  const currentReservation = dashboard.upcomingReservations.find(isCheckedInReservation);
+
+  if (currentReservation) {
+    const petSubject = formatPetSubject(currentReservation.petNames);
+
+    return `${petSubject.names} ${petSubject.verb} having a great time!`;
+  }
+
+  const upcomingReservation = dashboard.upcomingReservations[0];
+
+  if (upcomingReservation) {
+    const petSubject = formatPetSubject(upcomingReservation.petNames);
+
+    return `We can't wait to see ${petSubject.names}!`;
+  }
+
+  return "Ready for their next getaway?";
 }
 
 function formatRequestStatus(status: ReservationRequest["status"]) {
@@ -349,6 +453,33 @@ function isCheckedOutReservation(reservation: ClientReservation) {
   const normalizedStatus = reservation.status.trim().toLowerCase();
 
   return ["checked out", "checked-out", "complete", "completed"].includes(normalizedStatus);
+}
+
+function isCheckedInReservation(reservation: ClientReservation) {
+  return reservation.status.trim().toLowerCase() === "checked in";
+}
+
+function formatPetSubject(petNames: string[]) {
+  const names = formatPetNameList(petNames) || "Your pet";
+
+  return {
+    names,
+    verb: petNames.filter(Boolean).length === 1 || names === "Your pet" ? "is" : "are",
+  };
+}
+
+function formatPetNameList(petNames: string[]) {
+  const names = petNames.map((petName) => petName.trim()).filter(Boolean);
+
+  if (names.length <= 2) {
+    return names.join(" & ");
+  }
+
+  return `${names.slice(0, -1).join(", ")}, & ${names[names.length - 1]}`;
+}
+
+function normalizePetName(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function isWithinLastMonth(reservation: ClientReservation) {
@@ -445,6 +576,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 46,
   },
+  requestPetImage: {
+    borderColor: colors.goldenrod,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 50,
+    width: 50,
+  },
+  requestPetImageOverlap: {
+    marginLeft: -18,
+  },
+  requestPetStack: {
+    alignItems: "center",
+    flexDirection: "row",
+    minWidth: 50,
+  },
   requestPanelCopy: {
     flex: 1,
     gap: spacing.sm,
@@ -473,6 +619,9 @@ const styles = StyleSheet.create({
   },
   livePreview: {
     flex: 1.15,
+  },
+  pressedCard: {
+    opacity: 0.86,
   },
   liveImage: {
     borderBottomRightRadius: radius.lg,

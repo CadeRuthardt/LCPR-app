@@ -3,23 +3,24 @@ import * as React from "react";
 
 import { PetCard } from "@/components/composites";
 import { Screen, Section, Text } from "@/components/primitives";
-import { getCurrentClientPetsForApp } from "@/services/client-data";
+import { getCachedClientDashboardData, getCurrentClientDashboardData } from "@/services/client-data";
 import type { Pet } from "@/types/app";
 
 import { ScreenHeader } from "./screen-header";
 
 export function PetsScreen() {
+  const cachedDashboardData = getCachedClientDashboardData();
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [pets, setPets] = React.useState<Pet[]>([]);
+  const [isLoading, setIsLoading] = React.useState(!cachedDashboardData);
+  const [pets, setPets] = React.useState<Pet[]>(cachedDashboardData?.pets ?? []);
 
   React.useEffect(() => {
     let isMounted = true;
 
-    getCurrentClientPetsForApp()
-      .then((clientPets) => {
+    getCurrentClientDashboardData()
+      .then((dashboardData) => {
         if (isMounted) {
-          setPets(clientPets);
+          setPets(dashboardData.pets);
           setErrorMessage(null);
         }
       })

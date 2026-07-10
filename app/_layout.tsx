@@ -17,6 +17,7 @@ import { colors, fonts, shadows, spacing } from "@/theme";
 import { Icon, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
 import { LoginScreen } from "@/screens";
+import { AppBootstrapProvider } from "@/utils/app-bootstrap";
 import { SessionProvider, useSession } from "@/utils/session";
 
 const tabs = [
@@ -43,7 +44,9 @@ export default function RootLayout() {
 
   return (
     <SessionProvider>
-      <AuthGate />
+      <AppBootstrapProvider>
+        <AuthGate />
+      </AppBootstrapProvider>
     </SessionProvider>
   );
 }
@@ -114,6 +117,13 @@ function AuthGate() {
             }}
           />
         ))}
+        <Tabs.Screen
+          name="live-cameras"
+          options={{
+            href: null,
+            title: "Live Cameras",
+          }}
+        />
         <Tabs.Screen
           name="request-reservation"
           options={{

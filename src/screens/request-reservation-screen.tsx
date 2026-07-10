@@ -291,7 +291,11 @@ export function RequestReservationScreen() {
 
   function canAdvanceFromStep(step: RequestStep) {
     if (step === "Pets") {
-      return selectedPetIds.size > 0 && petsMissingCurrentVaccinations.length === 0;
+      return (
+        selectedPetIds.size > 0 &&
+        petsMissingCurrentVaccinations.length === 0 &&
+        !isMixedSpeciesRequest
+      );
     }
 
     if (step === "Location") {
@@ -589,10 +593,10 @@ export function RequestReservationScreen() {
             })}
             {isMixedSpeciesRequest ? (
               <Card style={styles.guidanceCard}>
-                <Text variant="title">Separate requests recommended</Text>
+                <Text variant="title">Separate requests required</Text>
                 <Text variant="body" tone="secondary">
-                  Dog and cat reservations use different accommodation options. Please submit one
-                  request for dogs and another for cats so each stay can be prepared correctly.
+                  Dog and cat reservations use different accommodation options. Select pets from
+                  one species to continue, then submit a separate request for the other pets.
                 </Text>
               </Card>
             ) : null}

@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import {
   faBell,
   faCalendarDays,
+  faCamera,
   faChevronLeft,
   faCheck,
   faChevronRight,
@@ -24,6 +25,7 @@ import {
   faStar,
   faUser,
   faUtensils,
+  faVideo,
   faWandMagicSparkles,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
@@ -32,6 +34,7 @@ import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 export type IconName =
   | "bell"
   | "calendar"
+  | "camera"
   | "check"
   | "chevron-left"
   | "chevron-right"
@@ -54,6 +57,7 @@ export type IconName =
   | "star"
   | "user"
   | "utensils"
+  | "video"
   | "x";
 
 type IconProps = {
@@ -65,6 +69,7 @@ type IconProps = {
 const icons: Record<IconName, IconDefinition> = {
   bell: faBell,
   calendar: faCalendarDays,
+  camera: faCamera,
   check: faCheck,
   "chevron-left": faChevronLeft,
   "chevron-right": faChevronRight,
@@ -87,6 +92,7 @@ const icons: Record<IconName, IconDefinition> = {
   star: faStar,
   user: faUser,
   utensils: faUtensils,
+  video: faVideo,
   x: faXmark,
 };
 

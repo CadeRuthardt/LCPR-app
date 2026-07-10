@@ -202,7 +202,12 @@ Deno.serve(async (request) => {
     if (action === "reservation-detail") {
       return jsonResponse({
         action,
-        data: await buildReservationDetail(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user, body),
+        data: await buildReservationDetailForClients(
+          gingrBaseUrl,
+          gingrClients,
+          authResult.user,
+          body,
+        ),
       });
     }
 
@@ -1373,14 +1378,6 @@ async function buildReservationDetail(
   );
   const missingIds = requestedIds.filter((id) => !reservationById.has(id));
 
-  if (missingIds.length > 0) {
-    throw new Error(
-      `One or more reservations could not be found for the signed-in client: ${missingIds.join(
-        ", ",
-      )}`,
-    );
-  }
-
   const locationById = new Map(
     locations
       .filter((location) => location.id)
@@ -1390,16 +1387,121 @@ async function buildReservationDetail(
     .map((id) => reservationById.get(id))
     .filter((reservation): reservation is Record<string, unknown> => Boolean(reservation));
   const estimate = await gingrGet(baseUrl, apiKey, "/api/v1/existing_reservation_estimate", {
-    id: requestedIds[0],
+    id: selectedReservations[0]
+      ? readAnyString(selectedReservations[0], ["r_id", "reservation_id", "id"]) ?? requestedIds[0]
+      : requestedIds[0],
   }).then(normalizeReservationEstimate).catch(() => null);
 
   return {
     ownerId: String(ownerId),
+    missingIds,
     reservations: selectedReservations.map((reservation) =>
       normalizeReservationDetail(reservation, locationById),
     ),
     rawReservations: selectedReservations.map(redact),
     estimate,
+  };
+}
+
+async function buildReservationDetailForClients(
+  baseUrl: string,
+  clients: GingrClient[],
+  user: AuthUser,
+  request: DiscoveryRequest,
+) {
+  const requestedIds = normalizeRequestedReservationIds(request);
+  const detailByKey = new Map<string, NormalizedReservationDetail>();
+  const rawReservations: Array<Record<string, unknown>> = [];
+  const ownerIds = new Set<string>();
+  const foundIds = new Set<string>();
+  let estimate: ReturnType<typeof normalizeReservationEstimate> | null = null;
+  const clientDebug: Array<{
+    city: string;
+    code: string;
+    error?: string;
+    foundIds: string[];
+    missingIds: string[];
+    reservationCount: number;
+  }> = [];
+
+  const clientResults = await Promise.all(
+    clients.map(async (client) => {
+      try {
+        const result = await buildReservationDetail(baseUrl, client.apiKey, user, request);
+
+        return { client, result };
+      } catch (error) {
+        return {
+          client,
+          error: error instanceof Error ? error.message : "Reservation detail lookup failed.",
+        };
+      }
+    }),
+  );
+
+  for (const clientResult of clientResults) {
+    if ("error" in clientResult) {
+      clientDebug.push({
+        city: clientResult.client.city,
+        code: clientResult.client.code,
+        error: clientResult.error,
+        foundIds: [],
+        missingIds: requestedIds,
+        reservationCount: 0,
+      });
+      continue;
+    }
+
+    const { client, result } = clientResult;
+
+    if (result.ownerId) {
+      ownerIds.add(result.ownerId);
+    }
+
+    for (const reservation of result.reservations) {
+      const reservationWithLocation = {
+        ...reservation,
+        location: normalizeKnownLocation(reservation.location, client.city),
+      };
+      const key = buildNormalizedReservationMergeKey(reservationWithLocation, client.code);
+
+      detailByKey.set(key, reservationWithLocation);
+      foundIds.add(reservation.id);
+    }
+
+    rawReservations.push(...(result.rawReservations ?? []));
+    estimate = estimate ?? result.estimate;
+
+    clientDebug.push({
+      city: client.city,
+      code: client.code,
+      foundIds: result.reservations.map((reservation) => reservation.id),
+      missingIds: result.missingIds ?? [],
+      reservationCount: result.reservations.length,
+    });
+  }
+
+  const missingIds = requestedIds.filter((id) => !foundIds.has(id));
+
+  if (detailByKey.size === 0 && missingIds.length > 0) {
+    throw new Error(
+      `One or more reservations could not be found for the signed-in client: ${missingIds.join(
+        ", ",
+      )}`,
+    );
+  }
+
+  return {
+    ownerId: Array.from(ownerIds)[0] ?? null,
+    ownerIds: Array.from(ownerIds),
+    reservations: Array.from(detailByKey.values()),
+    rawReservations,
+    estimate,
+    debug: {
+      clients: clientDebug,
+      missingIds,
+      requestedIds,
+    },
   };
 }
 
@@ -1798,11 +1900,16 @@ function normalizeAnimalImmunization(
 
 type NormalizedReservation = {
   animalNames: string[];
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  confirmedAt: string | null;
   endDate: string | null;
+  endDateTimeLabel: string | null;
   id: string;
   location: string | null;
   reservationType: string | null;
   startDate: string | null;
+  startDateTimeLabel: string | null;
   status: string;
 };
 
@@ -1824,6 +1931,7 @@ type NormalizedReservationDetail = NormalizedReservation & {
   nights: string | null;
   notes: string | null;
   petDetails: Array<{
+    age: string | null;
     allergies: string | null;
     breed: string | null;
     imageUrl: string | null;
@@ -1837,6 +1945,7 @@ type NormalizedReservationDetail = NormalizedReservation & {
     weight: string | null;
   }>;
   precheckCompleted: boolean | null;
+  reservationSummary: string | null;
   services: string | null;
   startDateTimeLabel: string | null;
   unitsOfTime: string | null;
@@ -1857,6 +1966,12 @@ function normalizeReservation(value: unknown, locationById = new Map<string, str
   return {
     id,
     animalNames: readReservationAnimalNames(reservation),
+    checkInAt: readAnyString(reservation, ["check_in_stamp_formatted", "checkin_stamp_formatted"]),
+    checkOutAt: readAnyString(reservation, [
+      "check_out_stamp_formatted",
+      "checkout_stamp_formatted",
+    ]),
+    confirmedAt: formatGingrTimestamp(readAnyString(reservation, ["confirmed_stamp"])),
     endDate: readAnyDate(reservation, [
       "end_date",
       "checkout_date",
@@ -1864,6 +1979,7 @@ function normalizeReservation(value: unknown, locationById = new Map<string, str
       "out_date",
       "end",
     ]),
+    endDateTimeLabel: readAnyString(reservation, ["end_date_formatted", "checkout_date_formatted"]),
     location: readReservationLocation(reservation, locationById),
     reservationType: readAnyString(reservation, [
       "reservation_type",
@@ -1878,6 +1994,10 @@ function normalizeReservation(value: unknown, locationById = new Map<string, str
       "checkin_at",
       "in_date",
       "start",
+    ]),
+    startDateTimeLabel: readAnyString(reservation, [
+      "start_date_formatted",
+      "checkin_date_formatted",
     ]),
     status: readReservationStatus(reservation),
   };
@@ -1898,15 +2018,12 @@ function normalizeReservationDetail(
     baseRate: formatMoney(readAnyString(reservation, ["base_rate", "baseRate"])),
     cancellationReason: readAnyString(reservation, ["cancellation_reason", "cancel_reason"]),
     cancelledBy: readAnyString(reservation, ["cancelled_by_username", "canceled_by_username"]),
-    checkInAt: readAnyString(reservation, ["check_in_stamp_formatted", "checkin_stamp_formatted"]),
-    checkOutAt: readAnyString(reservation, [
-      "check_out_stamp_formatted",
-      "checkout_stamp_formatted",
-    ]),
-    confirmedAt: formatGingrTimestamp(readAnyString(reservation, ["confirmed_stamp"])),
+    checkInAt: normalizedReservation.checkInAt,
+    checkOutAt: normalizedReservation.checkOutAt,
+    confirmedAt: normalizedReservation.confirmedAt,
     createdAt: formatGingrTimestamp(readAnyString(reservation, ["created_at"])),
     createdBy: readAnyString(reservation, ["created_by", "created_by_username"]),
-    endDateTimeLabel: readAnyString(reservation, ["end_date_formatted", "checkout_date_formatted"]),
+    endDateTimeLabel: normalizedReservation.endDateTimeLabel,
     feedingAmount: readAnyString(reservation, ["feeding_amount", "feedingAmount"]),
     feedingNotes: readAnyString(reservation, ["feeding_notes", "feedingNotes"]),
     feedingTime: cleanCommaList(readAnyString(reservation, ["feeding_time", "feedingTime"])),
@@ -1916,13 +2033,110 @@ function normalizeReservationDetail(
     notes: stripHtml(readAnyString(reservation, ["r_notes", "reservation_notes", "notes"])),
     petDetails: readReservationPetDetails(reservation),
     precheckCompleted: readNullableBoolean(reservation, "is_precheck_completed"),
+    reservationSummary: readReservationSummary(reservation),
     services: stripHtml(readAnyString(reservation, ["services_string", "services", "service_names"])),
-    startDateTimeLabel: readAnyString(reservation, [
-      "start_date_formatted",
-      "checkin_date_formatted",
-    ]),
+    startDateTimeLabel: normalizedReservation.startDateTimeLabel,
     unitsOfTime: readAnyString(reservation, ["units_of_time", "units"]),
   };
+}
+
+function readReservationSummary(reservation: Record<string, unknown>) {
+  const directSummary = readAnyString(reservation, [
+    "accommodation",
+    "accommodation_name",
+    "accommodation_type",
+    "amenity_package",
+    "amenity_package_name",
+    "animal_type_name",
+    "boarding_package",
+    "boarding_package_name",
+    "lodging",
+    "lodging_name",
+    "package",
+    "package_name",
+    "rate_name",
+    "reservation_label",
+    "reservation_name",
+    "room",
+    "room_name",
+    "room_type",
+    "room_type_name",
+    "run",
+    "run_name",
+    "suite",
+    "suite_name",
+    "suite_size",
+    "unit",
+    "unit_name",
+  ]);
+
+  const textSources = [
+    directSummary,
+    readAnyString(reservation, ["reservation_type", "reservation_type_name", "type", "service"]),
+    readAnyString(reservation, ["services_string", "services", "service_names"]),
+  ];
+
+  const rawEstimate = reservation.estimate;
+
+  if (rawEstimate && typeof rawEstimate === "object" && !Array.isArray(rawEstimate)) {
+    const estimate = rawEstimate as Record<string, unknown>;
+    textSources.push(readAnyString(estimate, ["label", "name", "description"]));
+  }
+
+  return cleanReservationSummaryParts(textSources);
+}
+
+function cleanReservationSummaryParts(values: Array<string | null>) {
+  const parts = values
+    .flatMap((value) => splitSummaryParts(stripHtml(value)))
+    .map(cleanSummaryPart)
+    .filter((part): part is string => Boolean(part));
+
+  return uniqueStrings(parts).join(" ") || null;
+}
+
+function splitSummaryParts(value: string | null) {
+  return (value ?? "")
+    .split(/[|,/;-]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function cleanSummaryPart(value: string) {
+  const normalized = value.trim().replace(/\s+/g, " ");
+
+  if (
+    !normalized ||
+    isGenericReservationCategory(normalized) ||
+    isGenericResortName(normalized) ||
+    normalizeSpecificLocationName(normalized)
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function isGenericReservationCategory(value: string) {
+  const normalized = value.trim().toLowerCase();
+
+  return [
+    "boarding",
+    "day care",
+    "daycare",
+    "grooming",
+    "lodging",
+    "reservation",
+    "spa",
+  ].includes(normalized);
+}
+
+function isGenericResortName(value: string) {
+  return /^le chateau pet resort$/i.test(value.trim());
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values));
 }
 
 function readReservationPetDetails(reservation: Record<string, unknown>) {
@@ -1953,6 +2167,7 @@ function readReservationPetDetail(record: Record<string, unknown>) {
   }
 
   return {
+    age: readAnyString(record, ["animal_age", "age", "age_years", "animal_age_years"]),
     allergies: stripHtml(readString(record, "allergies")),
     breed: readAnyString(record, ["breed_name", "breed"]),
     imageUrl: readAnyString(record, ["image", "image_url", "animal_image"]),

@@ -115,11 +115,16 @@ export type GingrLocationCitiesResponse = {
 
 export type GingrReservation = {
   animalNames: string[];
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  confirmedAt: string | null;
   endDate: string | null;
+  endDateTimeLabel: string | null;
   id: string;
   location: string | null;
   reservationType: string | null;
   startDate: string | null;
+  startDateTimeLabel: string | null;
   status: string;
 };
 
@@ -129,6 +134,7 @@ export type CurrentGingrReservationsResponse = {
 };
 
 export type GingrReservationDetailPet = {
+  age: string | null;
   allergies: string | null;
   breed: string | null;
   imageUrl: string | null;
@@ -180,6 +186,7 @@ export type GingrReservationDetail = GingrReservation & {
   notes: string | null;
   petDetails: GingrReservationDetailPet[];
   precheckCompleted: boolean | null;
+  reservationSummary: string | null;
   services: string | null;
   startDateTimeLabel: string | null;
   unitsOfTime: string | null;

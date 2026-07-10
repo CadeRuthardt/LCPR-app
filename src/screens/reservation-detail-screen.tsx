@@ -1,6 +1,6 @@
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as React from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, ImageBackground, StyleSheet, View } from "react-native";
 
 import {
   BackChevronButton,
@@ -12,14 +12,15 @@ import {
   Section,
   Text,
 } from "@/components/primitives";
+import { resortImages } from "@/data/mock-data";
 import { getClientReservationDetailForApp } from "@/services/client-data";
-import { colors, radius, spacing } from "@/theme";
+import { colors, fonts, radius, spacing } from "@/theme";
 import type { ClientReservationDetail, ReservationDetailPet } from "@/types/app";
-import { goBackOrReplace } from "@/utils/navigation";
 
 export function ReservationDetailScreen() {
-  const params = useLocalSearchParams<{ reservationIds?: string }>();
+  const params = useLocalSearchParams<{ reservationIds?: string; reservationSummary?: string }>();
   const reservationIds = parseReservationIds(params.reservationIds);
+  const reservationSummary = normalizeRouteParam(params.reservationSummary);
   const [detail, setDetail] = React.useState<ClientReservationDetail | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -67,7 +68,7 @@ export function ReservationDetailScreen() {
   return (
     <Screen contentStyle={styles.content}>
       <View style={styles.header}>
-        <BackChevronButton onPress={() => goBackOrReplace("/reservations")} style={styles.backButton} />
+        <BackChevronButton onPress={returnToReservations} style={styles.backButton} />
       </View>
 
       {isLoading ? (
@@ -89,41 +90,77 @@ export function ReservationDetailScreen() {
             icon="chevron-left"
             title="Reservations"
             variant="secondary"
-            onPress={() => goBackOrReplace("/reservations")}
+            onPress={returnToReservations}
           />
         </Card>
       ) : null}
 
-      {detail ? <ReservationDetailContent detail={detail} /> : null}
+      {detail ? <ReservationDetailContent detail={detail} reservationSummary={reservationSummary} /> : null}
     </Screen>
   );
 }
 
-function ReservationDetailContent({ detail }: { detail: ClientReservationDetail }) {
+function returnToReservations() {
+  router.replace("/reservations");
+}
+
+function ReservationDetailContent({
+  detail,
+  reservationSummary,
+}: {
+  detail: ClientReservationDetail;
+  reservationSummary: string | null;
+}) {
   const statusTone = badgeToneForStatus(detail.status);
+  const formattedLocation = formatSpecificLocation(detail.location);
 
   return (
     <>
-      <Card variant="elevated" style={styles.heroCard}>
-        <View style={styles.heroIcon}>
-          <Icon color={colors.goldenrod} name="calendar" size={26} />
-        </View>
-        <View style={styles.heroCopy}>
-          <Text variant="heading">{detail.dateRange}</Text>
-          <Text variant="body" tone="secondary">
-            {[detail.location, formatReservationType(detail.reservationType)]
-              .filter(Boolean)
-              .join(" | ") || "Reservation details"}
-          </Text>
-        </View>
-        <View style={styles.badgeRow}>
-          {detail.reservationType ? (
-            <Badge
-              label={formatReservationType(detail.reservationType) ?? detail.reservationType}
-              tone={badgeToneForReservationType(detail.reservationType)}
-            />
+      <Card style={styles.heroCard}>
+        <ImageBackground source={{ uri: getReservationHeroImage(detail.location) }} style={styles.heroImage}>
+          <View style={styles.heroOverlay} />
+          <View style={[styles.heroStatusLabel, statusHeroLabelStyle(detail.status)]}>
+            <Text variant="label" tone="inverse" style={styles.heroStatusText}>
+              {formatReservationStatus(detail.status)}
+            </Text>
+          </View>
+          {formattedLocation ? (
+            <Text variant="title" tone="inverse" style={styles.heroLocation}>
+              {formattedLocation}
+            </Text>
           ) : null}
-          <Badge label={formatReservationStatus(detail.status)} tone={statusTone} />
+        </ImageBackground>
+
+        <View style={styles.heroPanel}>
+          <View style={styles.heroCopy}>
+            <Text variant="heading">{detail.dateRange}</Text>
+            <Text variant="body" tone="secondary">
+              {formatReservationSummary(detail, reservationSummary)}
+            </Text>
+          </View>
+          <View style={styles.heroMeta}>
+            <View style={styles.badgeRow}>
+              {detail.reservationType ? (
+                <Badge
+                  label={formatReservationType(detail.reservationType) ?? detail.reservationType}
+                  tone={badgeToneForReservationType(detail.reservationType)}
+                />
+              ) : null}
+              <Badge label={formatReservationStatus(detail.status)} tone={statusTone} />
+            </View>
+            <View style={styles.checkTimes}>
+              <TimeRow
+                label={detail.checkInAt ? "Checked in" : "Expected check-in"}
+                value={formatTimeOnly(detail.checkInAt ?? detail.startDateTimeLabel)}
+                emptyValue="Time not listed"
+              />
+              <TimeRow
+                label={detail.checkOutAt ? "Checked out" : "Expected check-out"}
+                value={formatTimeOnly(detail.checkOutAt ?? detail.endDateTimeLabel)}
+                emptyValue="Time not listed"
+              />
+            </View>
+          </View>
         </View>
       </Card>
 
@@ -139,23 +176,35 @@ function ReservationDetailContent({ detail }: { detail: ClientReservationDetail 
         </Card>
       </Section>
 
-      <Section title="Timing">
+      <Section title="Feeding Information">
         <Card style={styles.detailCard}>
-          <FieldRow label="Arrival" value={detail.startDateTimeLabel ?? formatIsoDate(detail.startDate)} />
-          <FieldRow label="Departure" value={detail.endDateTimeLabel ?? formatIsoDate(detail.endDate)} />
-          <FieldRow label="Created" value={detail.createdAt} />
-          <FieldRow label="Confirmed" value={detail.confirmedAt} />
-          <FieldRow label="Nights" value={detail.nights ?? detail.unitsOfTime} />
-          <FieldRow label="Actual check-in" value={detail.checkInAt} />
-          <FieldRow label="Actual check-out" value={detail.checkOutAt} />
+          <FieldRow label="Feeding times" value={detail.feedingTime} />
+          <FieldRow label="Feeding amount" value={detail.feedingAmount} />
+          <FieldRow label="Feeding notes" value={detail.feedingNotes} />
         </Card>
       </Section>
 
-      <Section title="Experience">
+      <Section title="Medication Information">
         <Card style={styles.detailCard}>
-          <FieldRow label="Location" value={detail.location} />
-          <FieldRow label="Selections" value={formatReservationSelections(detail.reservationType)} />
+          {detail.petDetails.length > 0 ? (
+            detail.petDetails.map((pet, index) => (
+              <FieldRow
+                key={`${pet.name}-medication-${index}`}
+                label={pet.name}
+                value={pet.medicines}
+                emptyValue="No medications listed"
+              />
+            ))
+          ) : (
+            <FieldRow label="Medications" value={null} emptyValue="No medications listed" />
+          )}
+        </Card>
+      </Section>
+
+      <Section title="Additional Services">
+        <Card style={styles.detailCard}>
           <FieldRow label="Services" value={detail.services} emptyValue="No add-ons listed" />
+          <FieldRow label="Grooming notes" value={detail.groomingNotes} />
           <FieldRow
             label="Pre-check"
             value={formatBooleanStatus(detail.precheckCompleted, "Completed", "Not completed")}
@@ -163,13 +212,9 @@ function ReservationDetailContent({ detail }: { detail: ClientReservationDetail 
         </Card>
       </Section>
 
-      <Section title="Care Notes">
+      <Section title="Notes">
         <Card style={styles.detailCard}>
           <FieldRow label="Reservation notes" value={detail.notes} />
-          <FieldRow label="Feeding times" value={detail.feedingTime} />
-          <FieldRow label="Feeding amount" value={detail.feedingAmount} />
-          <FieldRow label="Feeding notes" value={detail.feedingNotes} />
-          <FieldRow label="Grooming notes" value={detail.groomingNotes} />
         </Card>
       </Section>
 
@@ -274,12 +319,11 @@ function PetDetailRow({ pet }: { pet: ReservationDetailPet }) {
       <View style={styles.petCopy}>
         <Text variant="title">{pet.name}</Text>
         <Text variant="caption" tone="secondary">
-          {[pet.breed, pet.species, pet.weight].filter(Boolean).join(" | ") || "Pet details"}
+          {[pet.breed, pet.weight, formatPetAge(pet.age)].filter(Boolean).join(" | ") ||
+            "Pet details"}
         </Text>
         <Text variant="caption" tone="muted">
-          {[pet.temperament, pet.allergies ? `Allergies: ${pet.allergies}` : null]
-            .filter(Boolean)
-            .join(" | ") || "Care notes not listed"}
+          {pet.medicines ? `Medications: ${pet.medicines}` : "Medications not listed"}
         </Text>
       </View>
     </View>
@@ -307,11 +351,38 @@ function FieldRow({
   );
 }
 
+function TimeRow({
+  emptyValue = "Time not listed",
+  label,
+  value,
+}: {
+  emptyValue?: string;
+  label: string;
+  value?: string | null;
+}) {
+  return (
+    <View style={styles.timeRow}>
+      <Text numberOfLines={1} variant="caption" tone="muted" style={styles.timeLabel}>
+        {label}
+      </Text>
+      <Text numberOfLines={1} variant="caption" tone={value ? "secondary" : "muted"} style={styles.timeValue}>
+        {value || emptyValue}
+      </Text>
+    </View>
+  );
+}
+
 function parseReservationIds(value?: string) {
   return (value ?? "")
     .split(",")
     .map((reservationId) => reservationId.trim())
     .filter(Boolean);
+}
+
+function normalizeRouteParam(value?: string | string[]) {
+  const normalizedValue = Array.isArray(value) ? value[0] : value;
+
+  return normalizedValue?.trim() || null;
 }
 
 function formatReservationType(reservationType: string | null) {
@@ -341,9 +412,126 @@ function formatReservationSelections(reservationType: string | null) {
   const selections = (reservationType ?? "")
     .split("|")
     .map((part) => part.trim())
-    .filter((part) => part && formatReservationType(part) !== primaryType);
+    .filter(
+      (part) =>
+        part &&
+        formatReservationType(part) !== primaryType &&
+        !isGenericResortName(part) &&
+        !isKnownLocation(part),
+    );
 
   return selections.join(" | ") || null;
+}
+
+function formatPetAge(age: string | null) {
+  if (!age) {
+    return null;
+  }
+
+  if (/\byear|month|week|day|old\b/i.test(age)) {
+    return age;
+  }
+
+  const numericAge = age.match(/\d+/)?.[0];
+
+  if (!numericAge) {
+    return age;
+  }
+
+  const count = Number(numericAge);
+  return `${count} year${count === 1 ? "" : "s"} old`;
+}
+
+function formatReservationSummary(
+  detail: ClientReservationDetail,
+  routeReservationSummary: string | null,
+) {
+  const type = formatReservationType(detail.reservationType);
+  const stayLength = isBoardingReservation(detail.reservationType)
+    ? formatNightCount(detail.nights ?? detail.unitsOfTime, detail.startDate, detail.endDate)
+    : type;
+  const detailType =
+    routeReservationSummary ??
+    detail.reservationSummary ??
+    formatReservationSelections(detail.reservationType);
+
+  return [stayLength, detailType].filter(Boolean).join(" | ") || "Reservation details";
+}
+
+function isBoardingReservation(reservationType: string | null) {
+  return formatReservationType(reservationType)?.toLowerCase() === "boarding";
+}
+
+function formatNightCount(
+  listedNights: string | null,
+  startDate: string | null,
+  endDate: string | null,
+) {
+  const parsedNights = listedNights?.match(/\d+/)?.[0];
+
+  if (parsedNights) {
+    const count = Number(parsedNights);
+    return `${count} Night${count === 1 ? "" : "s"}`;
+  }
+
+  if (startDate && endDate) {
+    const nights = Math.max(0, differenceInDays(startDate, endDate));
+
+    if (nights > 0) {
+      return `${nights} Night${nights === 1 ? "" : "s"}`;
+    }
+  }
+
+  return "Boarding";
+}
+
+function differenceInDays(startDate: string, endDate: string) {
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate);
+
+  if (!start || !end) {
+    return 0;
+  }
+
+  return Math.round((end.getTime() - start.getTime()) / 86400000);
+}
+
+function parseIsoDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getReservationHeroImage(location?: string | null) {
+  const normalizedLocation = location?.trim().toLowerCase() ?? "";
+
+  if (normalizedLocation.includes("wichita falls")) {
+    return resortImages.wichitaFallsHero;
+  }
+
+  return resortImages.loginHero;
+}
+
+function formatSpecificLocation(value: string | null) {
+  if (!value || isGenericResortName(value)) {
+    return null;
+  }
+
+  const knownLocations = ["Amarillo", "Wichita Falls", "New Braunfels"];
+  const knownLocation = knownLocations.find((location) =>
+    value.toLowerCase().includes(location.toLowerCase()),
+  );
+
+  return knownLocation ?? value;
+}
+
+function isGenericResortName(value: string) {
+  return /^le chateau pet resort$/i.test(value.trim());
+}
+
+function isKnownLocation(value: string) {
+  return Boolean(formatSpecificLocation(value));
 }
 
 function badgeToneForReservationType(reservationType: string) {
@@ -400,6 +588,24 @@ function formatReservationStatus(status: string) {
   return status;
 }
 
+function statusHeroLabelStyle(status: string) {
+  const normalizedStatus = status.trim().toLowerCase();
+
+  if (normalizedStatus === "confirmed" || normalizedStatus === "checked in") {
+    return styles.heroStatusConfirmed;
+  }
+
+  if (normalizedStatus === "unconfirmed") {
+    return styles.heroStatusUnconfirmed;
+  }
+
+  if (normalizedStatus === "checked out" || normalizedStatus === "checked-out") {
+    return styles.heroStatusCheckedOut;
+  }
+
+  return null;
+}
+
 function formatBooleanStatus(value: boolean | null, trueLabel: string, falseLabel: string) {
   if (value === null) {
     return null;
@@ -428,15 +634,40 @@ function formatRawValue(value: unknown) {
   }
 }
 
+function formatTimeOnly(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const timeMatch = value.match(/\b(\d{1,2})(?::(\d{2}))?\s*([AP]M)\b/i);
+
+  if (timeMatch) {
+    const [, hour, minutes, meridiem] = timeMatch;
+    return `${hour}:${minutes ?? "00"} ${meridiem.toUpperCase()}`;
+  }
+
+  if (/T\d{2}:\d{2}/.test(value)) {
+    const date = new Date(value);
+
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+  }
+
+  return null;
+}
+
 function formatIsoDate(value?: string | null) {
   if (!value) {
     return null;
   }
 
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
+  const date = parseIsoDate(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (!date) {
     return value;
   }
 
@@ -483,21 +714,86 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
   },
   heroCard: {
-    alignItems: "center",
-    gap: spacing.md,
-    padding: spacing.xl,
+    gap: 0,
+    overflow: "hidden",
+    padding: 0,
   },
   heroCopy: {
     alignItems: "center",
     gap: spacing.xs,
   },
-  heroIcon: {
+  heroImage: {
+    height: 210,
+    justifyContent: "space-between",
+    overflow: "hidden",
+  },
+  heroLocation: {
+    alignSelf: "center",
+    fontFamily: fonts.display,
+    fontSize: 40,
+    lineHeight: 46,
+    marginBottom: spacing.xl,
+    marginHorizontal: spacing.lg,
+    textAlign: "center",
+    textShadowColor: colors.overlayDark,
+    textShadowOffset: { height: 1, width: 0 },
+    textShadowRadius: 8,
+  },
+  heroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlayDark,
+  },
+  heroPanel: {
     alignItems: "center",
-    backgroundColor: colors.champagne,
+    backgroundColor: colors.porcelain,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    gap: spacing.md,
+    marginTop: -28,
+    padding: spacing.xl,
+  },
+  heroMeta: {
+    alignSelf: "stretch",
+    gap: spacing.md,
+  },
+  checkTimes: {
+    gap: spacing.sm,
+  },
+  timeLabel: {
+    flex: 1,
+  },
+  timeRow: {
+    alignItems: "center",
+    borderBottomColor: colors.creamBorder,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+    paddingBottom: spacing.sm,
+  },
+  timeValue: {
+    flexShrink: 0,
+    textAlign: "right",
+  },
+  heroStatusCheckedOut: {
+    backgroundColor: colors.statusBlue,
+  },
+  heroStatusConfirmed: {
+    backgroundColor: colors.statusGreen,
+  },
+  heroStatusLabel: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.goldenrod,
     borderRadius: radius.pill,
-    height: 58,
-    justifyContent: "center",
-    width: 58,
+    margin: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  heroStatusText: {
+    textTransform: "uppercase",
+  },
+  heroStatusUnconfirmed: {
+    backgroundColor: colors.statusRed,
   },
   noticeCard: {
     gap: spacing.md,
