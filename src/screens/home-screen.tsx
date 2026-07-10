@@ -4,7 +4,7 @@ import { Image, ImageBackground, Linking, Pressable, StyleSheet, View } from "re
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button, Icon, Screen, Text } from "@/components/primitives";
-import { guest, resortImages } from "@/data/mock-data";
+import { resortImages } from "@/data/mock-data";
 import {
   getCachedClientDashboardData,
   getCurrentClientDashboardData,
@@ -13,6 +13,7 @@ import { colors, fonts, radius, spacing } from "@/theme";
 import type { ClientReservation, Pet } from "@/types/app";
 import type { ReservationRequest } from "@/types/database";
 import { getTimeOfDayGreeting } from "@/utils/greeting";
+import { useSession } from "@/utils/session";
 
 const logo = require("../../assets/logo.png");
 const heroImageUrl =
@@ -58,6 +59,7 @@ type HomePanelPetPreview = {
 export function HomeScreen() {
   const greeting = getTimeOfDayGreeting();
   const insets = useSafeAreaInsets();
+  const { client, user } = useSession();
   const cachedDashboardData = getCachedClientDashboardData();
   const [dashboard, setDashboard] = React.useState<HomeDashboardState>({
     pastReservations: cachedDashboardData?.pastReservations ?? [],
@@ -95,6 +97,10 @@ export function HomeScreen() {
   );
 
   const homePanel = React.useMemo(() => selectHomePanel(dashboard), [dashboard]);
+  const firstName = React.useMemo(
+    () => getFirstName(client?.display_name, client?.email ?? user?.email),
+    [client?.display_name, client?.email, user?.email],
+  );
   const heroStatusLine = React.useMemo(
     () => (isLoading ? "Preparing their resort details..." : formatHomeHeroStatusLine(dashboard)),
     [dashboard, isLoading],
@@ -130,7 +136,7 @@ export function HomeScreen() {
             </Text>
             <View style={styles.nameRow}>
               <Text variant="hero" tone="inverse">
-                {guest.firstName}.
+                {firstName}.
               </Text>
               <Icon color={colors.goldenrod} name="paw" size={28} />
             </View>
@@ -441,6 +447,27 @@ function formatDisplayDate(value: string) {
     day: "numeric",
     month: "short",
   });
+}
+
+function getFirstName(displayName?: string | null, email?: string | null) {
+  const normalizedName = displayName?.trim();
+
+  if (normalizedName) {
+    return normalizedName.split(/\s+/)[0];
+  }
+
+  const emailPrefix = email?.split("@")[0]?.trim();
+
+  if (emailPrefix) {
+    const [firstPart] = emailPrefix.split(/[._-]/).filter(Boolean);
+    return firstPart ? capitalizeName(firstPart) : "friend";
+  }
+
+  return "friend";
+}
+
+function capitalizeName(value: string) {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
 function parseIsoDate(value: string) {
