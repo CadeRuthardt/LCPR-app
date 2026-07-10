@@ -2,7 +2,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import * as React from "react";
 
 import { isSupabaseConfigured, requireSupabase, supabase } from "@/lib/supabase";
-import { getCurrentClientProfile } from "@/services/client-data";
+import { clearClientDashboardCache, ensureCurrentClientProfile } from "@/services/client-data";
 import type { ClientProfile } from "@/types/database";
 import { getFriendlyAuthError } from "@/utils/auth-errors";
 
@@ -31,14 +31,23 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
   const loadClient = React.useCallback(async (activeSession: Session | null) => {
     setSession(activeSession);
+    clearClientDashboardCache();
 
     if (!activeSession?.user) {
       setClient(null);
       return;
     }
 
-    const profile = await getCurrentClientProfile(activeSession.user.id);
-    setClient(profile);
+    try {
+      setClient(null);
+      const profile = await ensureCurrentClientProfile(activeSession.user.id);
+      setClient(profile);
+      setAuthError(null);
+    } catch (error) {
+      setClient(null);
+      setAuthError(getFriendlyAuthError(error));
+      throw error;
+    }
   }, []);
 
   React.useEffect(() => {
@@ -92,7 +101,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     const { error } = await requireSupabase().auth.signInWithOtp({
       email,
       options: {
-        shouldCreateUser: false,
+        shouldCreateUser: true,
       },
     });
 
@@ -134,6 +143,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
     setClient(null);
     setSession(null);
+    clearClientDashboardCache();
   }, []);
 
   const value = React.useMemo<SessionContextValue>(

@@ -4,6 +4,7 @@ import {
   getCurrentGingrPets,
   getCurrentGingrReservations,
   getGingrReservationDetail,
+  linkCurrentGingrClient,
 } from "@/services/gingr";
 import type { ClientReservation, ClientReservationDetail, Pet } from "@/types/app";
 import type {
@@ -36,6 +37,25 @@ export async function getCurrentClientProfile(userId: string) {
   }
 
   return data;
+}
+
+export async function ensureCurrentClientProfile(userId: string) {
+  const existingProfile = await getCurrentClientProfile(userId);
+
+  if (existingProfile) {
+    return existingProfile;
+  }
+
+  const linkResult = await linkCurrentGingrClient();
+
+  if (!linkResult?.allowed || !linkResult.profile) {
+    throw new Error(
+      linkResult?.message ??
+        "We could not match this email to a Le Chateau client profile. Please contact our team for help.",
+    );
+  }
+
+  return linkResult.profile;
 }
 
 export async function getCurrentClientPets() {

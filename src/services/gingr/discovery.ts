@@ -12,6 +12,7 @@ export type GingrDiscoveryAction =
   | "current-owner"
   | "current-owner-profile"
   | "current-pets"
+  | "link-current-client"
   | "reservation-detail"
   | "current-reservations"
   | "reservation-detail-test"
@@ -101,6 +102,20 @@ export type CurrentGingrOwnerProfileResponse = {
   imageUrl: string | null;
   ownerId: string | null;
   rawOwner?: Record<string, unknown>;
+};
+
+export type LinkCurrentClientResponse = {
+  allowed: boolean;
+  message?: string;
+  profile?: {
+    created_at: string;
+    display_name: string;
+    email: string;
+    gingr_client_id: string | null;
+    id: string;
+    updated_at: string;
+  };
+  reason?: "missing_email" | "multiple_matches" | "not_found";
 };
 
 export type GingrLocation = {
@@ -300,6 +315,14 @@ export async function getCurrentGingrPets() {
 export async function getCurrentGingrOwnerProfile() {
   const response = await runGingrDiscovery<CurrentGingrOwnerProfileResponse>({
     action: "current-owner-profile",
+  });
+
+  return response?.data ?? null;
+}
+
+export async function linkCurrentGingrClient() {
+  const response = await runGingrDiscovery<LinkCurrentClientResponse>({
+    action: "link-current-client",
   });
 
   return response?.data ?? null;

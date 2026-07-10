@@ -10,6 +10,7 @@ type DiscoveryAction =
   | "current-owner"
   | "current-owner-profile"
   | "current-pets"
+  | "link-current-client"
   | "reservation-detail"
   | "current-reservations"
   | "reservation-detail-test"
@@ -185,6 +186,13 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (action === "link-current-client") {
+      return jsonResponse({
+        action,
+        data: await linkCurrentClientProfile(gingrBaseUrl, gingrClients, authResult.user),
+      });
+    }
+
     if (action === "current-pets") {
       return jsonResponse({
         action,
@@ -228,7 +236,7 @@ Deno.serve(async (request) => {
     return jsonResponse(
       {
         error:
-          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, current-owner, current-owner-profile, current-pets, current-reservations, reservation-detail, reservation-detail-test, or current-client-snapshot.",
+          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, current-owner, current-owner-profile, link-current-client, current-pets, current-reservations, reservation-detail, reservation-detail-test, or current-client-snapshot.",
       },
       400,
     );
@@ -1731,6 +1739,134 @@ async function buildCurrentOwnerProfile(baseUrl: string, apiKey: string, user: A
     imageSourceKey: image?.key ?? null,
     rawOwner: redact(ownerData),
   };
+}
+
+async function linkCurrentClientProfile(baseUrl: string, clients: GingrClient[], user: AuthUser) {
+  if (!user.email) {
+    return {
+      allowed: false,
+      reason: "missing_email",
+      message: "Your sign-in session does not include an email address.",
+    };
+  }
+
+  const matches = await findOwnerMatchesByEmail(baseUrl, clients, user);
+
+  if (matches.length === 0) {
+    return {
+      allowed: false,
+      reason: "not_found",
+      message:
+        "We could not find this email on file with Le Chateau. Please contact our team for help accessing the app.",
+    };
+  }
+
+  const uniqueOwnerIds = Array.from(new Set(matches.map((match) => match.ownerId).filter(Boolean)));
+
+  if (uniqueOwnerIds.length > 1) {
+    return {
+      allowed: false,
+      reason: "multiple_matches",
+      message:
+        "We found more than one matching client record. Please contact our team so we can connect the right profile.",
+      matchedOwnerCount: uniqueOwnerIds.length,
+    };
+  }
+
+  const selectedMatch = matches.find((match) => match.ownerId === uniqueOwnerIds[0]) ?? matches[0];
+  const displayName = selectedMatch.displayName || user.email;
+  const email = selectedMatch.email || user.email;
+  const profile = await upsertClientProfile({
+    displayName,
+    email,
+    gingrClientId: selectedMatch.ownerId,
+    userId: user.id,
+  });
+
+  return {
+    allowed: true,
+    matchLocationCodes: Array.from(new Set(matches.map((match) => match.locationCode))),
+    profile,
+  };
+}
+
+async function findOwnerMatchesByEmail(baseUrl: string, clients: GingrClient[], user: AuthUser) {
+  const results = await Promise.all(
+    clients.map(async (client) => {
+      try {
+        const owner = await findOwnerByEmail(baseUrl, client.apiKey, user);
+        const ownerData = unwrapGingrData<Record<string, unknown>>(owner);
+
+        if (!ownerData) {
+          return null;
+        }
+
+        const ownerId = readString(ownerData, "id") ?? readString(ownerData, "owner_id");
+
+        if (!ownerId) {
+          return null;
+        }
+
+        const firstName = readString(ownerData, "first_name");
+        const lastName = readString(ownerData, "last_name");
+
+        return {
+          displayName: [firstName, lastName].filter(Boolean).join(" ") || null,
+          email: readString(ownerData, "email") ?? user.email ?? null,
+          locationCity: client.city,
+          locationCode: client.code,
+          ownerId,
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  return results.filter((result): result is NonNullable<(typeof results)[number]> => Boolean(result));
+}
+
+async function upsertClientProfile({
+  displayName,
+  email,
+  gingrClientId,
+  userId,
+}: {
+  displayName: string;
+  email: string;
+  gingrClientId: string;
+  userId: string;
+}) {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Supabase service role environment is not available for client linking.");
+  }
+
+  const response = await fetch(`${supabaseUrl}/rest/v1/client_profiles?on_conflict=id`, {
+    body: JSON.stringify({
+      display_name: displayName,
+      email,
+      gingr_client_id: gingrClientId,
+      id: userId,
+    }),
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Unable to link client profile: ${message || response.status}`);
+  }
+
+  const profiles = (await response.json()) as unknown[];
+  return Array.isArray(profiles) ? profiles[0] ?? null : profiles;
 }
 
 async function buildCurrentClientSnapshot(

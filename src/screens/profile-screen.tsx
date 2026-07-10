@@ -34,6 +34,7 @@ const gingrDebugActions: Array<{
   { action: "report-card-files", label: "Test Report Cards" },
   { action: "current-owner", label: "Test Current Owner" },
   { action: "current-owner-profile", label: "Test Owner Profile" },
+  { action: "link-current-client", label: "Test Client Link" },
   { action: "current-pets", label: "Test Current Pets" },
   { action: "current-reservations", label: "Test Current Reservations" },
   { action: "reservation-detail-test", label: "Test Reservation Detail" },

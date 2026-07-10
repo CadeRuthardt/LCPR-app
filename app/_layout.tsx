@@ -12,9 +12,10 @@ import { useFonts } from "expo-font";
 import { Tabs, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { StatusBarStyle } from "expo-status-bar";
+import { View } from "react-native";
 
 import { colors, fonts, shadows, spacing } from "@/theme";
-import { Icon, Text } from "@/components/primitives";
+import { Button, Icon, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
 import { LoginScreen } from "@/screens";
 import { AppBootstrapProvider } from "@/utils/app-bootstrap";
@@ -52,7 +53,7 @@ export default function RootLayout() {
 }
 
 function AuthGate() {
-  const { isLoading, isSignedIn } = useSession();
+  const { authError, client, isLoading, isSignedIn, signOut } = useSession();
   const segments = useSegments();
   const activeRoute = segments[0] ?? "index";
   const statusBarStyle: StatusBarStyle =
@@ -74,6 +75,15 @@ function AuthGate() {
       <>
         <StatusBar animated style={statusBarStyle} />
         <LoginScreen />
+      </>
+    );
+  }
+
+  if (!client) {
+    return (
+      <>
+        <StatusBar animated style="dark" />
+        <AccessPendingScreen errorMessage={authError} onSignOut={signOut} />
       </>
     );
   }
@@ -147,6 +157,36 @@ function AuthGate() {
         />
       </Tabs>
     </>
+  );
+}
+
+function AccessPendingScreen({
+  errorMessage,
+  onSignOut,
+}: {
+  errorMessage: string | null;
+  onSignOut: () => Promise<void>;
+}) {
+  return (
+    <View
+      style={{
+        alignItems: "stretch",
+        backgroundColor: colors.ivory,
+        flex: 1,
+        gap: spacing.lg,
+        justifyContent: "center",
+        paddingHorizontal: spacing.xl,
+      }}
+    >
+      <Text style={{ textAlign: "center" }} variant="heading">
+        We could not connect your profile yet.
+      </Text>
+      <Text style={{ textAlign: "center" }} tone="secondary" variant="body">
+        {errorMessage ??
+          "Please contact Le Chateau so our team can match your app access to your client record."}
+      </Text>
+      <Button onPress={onSignOut} title="Use a Different Email" variant="secondary" />
+    </View>
   );
 }
 

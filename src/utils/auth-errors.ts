@@ -10,6 +10,14 @@ export function getFriendlyAuthError(error: unknown) {
   }
 
   if (
+    normalized.includes("le chateau client profile") ||
+    normalized.includes("found this email on file") ||
+    normalized.includes("matching client record")
+  ) {
+    return rawMessage;
+  }
+
+  if (
     normalized.includes("unexpected_failure") ||
     normalized.includes("status\":500") ||
     normalized.includes("status:500") ||
