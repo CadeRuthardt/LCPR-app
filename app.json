@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Le Chateau",
+    "name": "Le Chateau 2.0",
     "slug": "LCPR-app",
     "scheme": "lcpr",
     "version": "1.0.0",
@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lechateaupetresort.app",
+      "bundleIdentifier": "com.partner-auto-5023.lcpr",
       "config": {
         "usesNonExemptEncryption": false
       }
