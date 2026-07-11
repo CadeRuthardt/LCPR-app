@@ -12,6 +12,7 @@ type SessionContextValue = {
   isConfigured: boolean;
   isLoading: boolean;
   isSignedIn: boolean;
+  refreshClientProfile: () => Promise<ClientProfile | null>;
   sendEmailCode: (email: string) => Promise<void>;
   session: Session | null;
   signInWithPassword: (email: string, password: string) => Promise<void>;
@@ -96,6 +97,21 @@ export function SessionProvider({ children }: SessionProviderProps) {
     };
   }, [loadClient]);
 
+  const refreshClientProfile = React.useCallback(async () => {
+    const activeUser = session?.user;
+
+    if (!activeUser) {
+      setClient(null);
+      return null;
+    }
+
+    const profile = await ensureCurrentClientProfile(activeUser.id);
+    setClient(profile);
+    setAuthError(null);
+
+    return profile;
+  }, [session?.user]);
+
   const sendEmailCode = React.useCallback(async (email: string) => {
     setAuthError(null);
 
@@ -173,6 +189,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       isConfigured: isSupabaseConfigured,
       isLoading,
       isSignedIn: Boolean(session?.user),
+      refreshClientProfile,
       sendEmailCode,
       session,
       signInWithPassword,
@@ -184,6 +201,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       authError,
       client,
       isLoading,
+      refreshClientProfile,
       sendEmailCode,
       session,
       signInWithPassword,

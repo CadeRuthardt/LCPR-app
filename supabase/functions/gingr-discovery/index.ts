@@ -7,6 +7,8 @@ type DiscoveryAction =
   | "request-catalog"
   | "list-invoices"
   | "report-card-files"
+  | "owner-form"
+  | "owner-custom-field-search"
   | "current-owner"
   | "current-owner-profile"
   | "current-pets"
@@ -33,6 +35,16 @@ type GingrClient = {
   apiKey: string;
   city: string;
   code: string;
+};
+
+type OwnerEmailMatch = {
+  displayName: string | null;
+  email: string | null;
+  locationCity: string;
+  locationCode: string;
+  matchedBy: "primary_email" | "additional_owner_email";
+  matchedEmail: string;
+  ownerId: string;
 };
 
 const corsHeaders = {
@@ -172,6 +184,24 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (action === "owner-form") {
+      return jsonResponse({
+        action,
+        data: await buildOwnerFormDiscovery(gingrBaseUrl, primaryGingrClient.apiKey),
+      });
+    }
+
+    if (action === "owner-custom-field-search") {
+      return jsonResponse({
+        action,
+        data: await buildOwnerCustomFieldSearchDiscovery(
+          gingrBaseUrl,
+          primaryGingrClient.apiKey,
+          authResult.user,
+        ),
+      });
+    }
+
     if (action === "current-owner") {
       return jsonResponse({
         action,
@@ -236,7 +266,7 @@ Deno.serve(async (request) => {
     return jsonResponse(
       {
         error:
-          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, current-owner, current-owner-profile, link-current-client, current-pets, current-reservations, reservation-detail, reservation-detail-test, or current-client-snapshot.",
+          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, owner-form, owner-custom-field-search, current-owner, current-owner-profile, link-current-client, current-pets, current-reservations, reservation-detail, reservation-detail-test, or current-client-snapshot.",
       },
       400,
     );
@@ -1712,6 +1742,180 @@ async function buildReportCardFileDiscovery(baseUrl: string, apiKey: string, use
   };
 }
 
+async function buildOwnerFormDiscovery(baseUrl: string, apiKey: string) {
+  const response = await gingrGet(baseUrl, apiKey, "/forms/get_form", {
+    form: "owner_form",
+  });
+  const fields = extractFormFieldSummaries(response);
+
+  return {
+    form: "owner_form",
+    totalFieldsFound: fields.length,
+    additionalContactCandidates: fields.filter(isAdditionalContactField).slice(0, 40),
+    fieldSamples: fields.slice(0, 80),
+    responseFieldKeys: readObjectKeys(unwrapGingrData<Record<string, unknown>>(response) ?? {}),
+    rawForm: response,
+    note:
+      "Use this to identify the technical field names Gingr uses for owner-form additional contact fields.",
+  };
+}
+
+async function buildOwnerCustomFieldSearchDiscovery(
+  baseUrl: string,
+  apiKey: string,
+  user: AuthUser,
+) {
+  const owner = await findOwnerByEmail(baseUrl, apiKey, user);
+  const ownerData = unwrapGingrData<Record<string, unknown>>(owner);
+  const ownerId = ownerData ? readString(ownerData, "id") : null;
+  const ownerEmail = ownerData ? readString(ownerData, "email") : user.email ?? null;
+  const firstName = ownerData ? readString(ownerData, "first_name") : null;
+  const lastName = ownerData ? readString(ownerData, "last_name") : null;
+  const emergencyContactName = ownerData ? readString(ownerData, "emergency_contact_name") : null;
+  const formResponse = await gingrGet(baseUrl, apiKey, "/forms/get_form", {
+    form: "owner_form",
+  }).catch((error) => ({ __error: error instanceof Error ? error.message : String(error) }));
+  const candidateFieldNames = Array.from(
+    new Set([
+      "owner_id",
+      "id",
+      "email",
+      "o_email",
+      "additional_owner_first_name",
+      "additional_owner_last_name",
+      "additional_owner_cell_phone",
+      "additional_owner_email",
+      "emergency_contact_name",
+      "emergency_contact_phone",
+      ...extractFormFieldSummaries(formResponse)
+        .filter(isAdditionalContactField)
+        .map((field) => field.technicalName)
+        .filter((fieldName): fieldName is string => Boolean(fieldName)),
+    ]),
+  ).slice(0, 18);
+  const searchTerms = Array.from(
+    new Set(
+      [
+        ownerId,
+        ownerEmail,
+        [firstName, lastName].filter(Boolean).join(" "),
+        emergencyContactName,
+      ].filter((term): term is string => Boolean(term)),
+    ),
+  ).slice(0, 4);
+  const lookups = await Promise.all(
+    candidateFieldNames.flatMap((fieldName) =>
+      searchTerms.map(async (search) => {
+        const params = {
+          field_name: fieldName,
+          form_id: "1",
+          search,
+        };
+
+        try {
+          const response = await gingrGet(baseUrl, apiKey, "/api/v1/custom_field_search", params);
+          const results = unwrapGingrArray(response);
+
+          return {
+            fieldName,
+            search,
+            totalReturned: results.length,
+            sampleFieldKeys: results.length > 0 ? readObjectKeys(results[0]) : [],
+            samples: results.slice(0, 3),
+          };
+        } catch (error) {
+          return {
+            fieldName,
+            search,
+            ...formatDebugLookupError(error),
+          };
+        }
+      }),
+    ),
+  );
+
+  return {
+    ownerId,
+    ownerEmail,
+    candidateFieldNames,
+    searchTerms,
+    matchingLookups: lookups.filter((lookup) => "totalReturned" in lookup && lookup.totalReturned > 0),
+    lookups,
+    note:
+      "custom_field_search is search-based. If this returns no matches, we may need the exact owner-form technical field name and a value known to exist in that field.",
+  };
+}
+
+type FormFieldSummary = {
+  label: string | null;
+  path: string;
+  rawFieldKeys: string[];
+  technicalName: string | null;
+  type: string | null;
+};
+
+function extractFormFieldSummaries(value: unknown) {
+  const fields: FormFieldSummary[] = [];
+  collectFormFieldSummaries(value, "response", fields);
+
+  return fields.slice(0, 250);
+}
+
+function collectFormFieldSummaries(value: unknown, path: string, fields: FormFieldSummary[]) {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      collectFormFieldSummaries(item, `${path}[${index}]`, fields);
+    });
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  const label = readAnyString(record, [
+    "label",
+    "title",
+    "display_name",
+    "field_label",
+    "question",
+    "text",
+  ]);
+  const technicalName = readAnyString(record, [
+    "field_name",
+    "input_name",
+    "technical_name",
+    "slug",
+    "key",
+    "name",
+    "id",
+  ]);
+  const type = readAnyString(record, ["type", "field_type", "input_type", "element"]);
+
+  if (label || technicalName) {
+    fields.push({
+      label,
+      path,
+      rawFieldKeys: readObjectKeys(record),
+      technicalName,
+      type,
+    });
+  }
+
+  for (const [key, nestedValue] of Object.entries(record)) {
+    if (nestedValue && typeof nestedValue === "object") {
+      collectFormFieldSummaries(nestedValue, `${path}.${key}`, fields);
+    }
+  }
+}
+
+function isAdditionalContactField(field: FormFieldSummary) {
+  return /additional|emergency|contact|owner|phone|cell|email/i.test(
+    [field.label, field.technicalName, field.path].filter(Boolean).join(" "),
+  );
+}
+
 async function buildCurrentOwnerProfile(baseUrl: string, apiKey: string, user: AuthUser) {
   const owner = await findOwnerByEmail(baseUrl, apiKey, user);
   const ownerData = unwrapGingrData<Record<string, unknown>>(owner);
@@ -1791,39 +1995,131 @@ async function linkCurrentClientProfile(baseUrl: string, clients: GingrClient[],
 }
 
 async function findOwnerMatchesByEmail(baseUrl: string, clients: GingrClient[], user: AuthUser) {
+  const normalizedUserEmail = normalizeEmail(user.email);
+
+  if (!normalizedUserEmail) {
+    return [];
+  }
+
   const results = await Promise.all(
-    clients.map(async (client) => {
+    clients.map(async (client): Promise<OwnerEmailMatch[]> => {
+      const matches: OwnerEmailMatch[] = [];
+
       try {
         const owner = await findOwnerByEmail(baseUrl, client.apiKey, user);
         const ownerData = unwrapGingrData<Record<string, unknown>>(owner);
 
-        if (!ownerData) {
-          return null;
+        if (ownerData) {
+          const ownerId = readString(ownerData, "id") ?? readString(ownerData, "owner_id");
+          const ownerEmail = readString(ownerData, "email") ?? user.email ?? null;
+
+          if (ownerId && (!ownerEmail || normalizeEmail(ownerEmail) === normalizedUserEmail)) {
+            const firstName = readString(ownerData, "first_name");
+            const lastName = readString(ownerData, "last_name");
+
+            matches.push({
+              displayName: [firstName, lastName].filter(Boolean).join(" ") || null,
+              email: ownerEmail,
+              locationCity: client.city,
+              locationCode: client.code,
+              matchedBy: "primary_email",
+              matchedEmail: user.email ?? ownerEmail ?? "",
+              ownerId,
+            });
+          }
         }
-
-        const ownerId = readString(ownerData, "id") ?? readString(ownerData, "owner_id");
-
-        if (!ownerId) {
-          return null;
-        }
-
-        const firstName = readString(ownerData, "first_name");
-        const lastName = readString(ownerData, "last_name");
-
-        return {
-          displayName: [firstName, lastName].filter(Boolean).join(" ") || null,
-          email: readString(ownerData, "email") ?? user.email ?? null,
-          locationCity: client.city,
-          locationCode: client.code,
-          ownerId,
-        };
       } catch {
-        return null;
+        // Keep checking additional owner email fields for this location.
       }
+
+      try {
+        matches.push(...(await findOwnersByAdditionalOwnerEmail(baseUrl, client, normalizedUserEmail)));
+      } catch {
+        // A location-specific custom-field lookup should not block other matches.
+      }
+
+      return dedupeOwnerEmailMatches(matches);
     }),
   );
 
-  return results.filter((result): result is NonNullable<(typeof results)[number]> => Boolean(result));
+  return dedupeOwnerEmailMatches(results.flat());
+}
+
+function normalizeEmail(email?: string | null) {
+  return email?.trim().toLowerCase() ?? "";
+}
+
+const additionalOwnerEmailFieldNames = ["secondary_email", "additional_owner_email"];
+
+async function findOwnersByAdditionalOwnerEmail(
+  baseUrl: string,
+  client: GingrClient,
+  normalizedEmail: string,
+): Promise<OwnerEmailMatch[]> {
+  const lookupResults = await Promise.all(
+    additionalOwnerEmailFieldNames.map(async (fieldName) => {
+      try {
+        const response = await gingrGet(baseUrl, client.apiKey, "/api/v1/custom_field_search", {
+          field_name: fieldName,
+          form_id: "1",
+          search: normalizedEmail,
+        });
+
+        return unwrapGingrArray(response);
+      } catch {
+        return [];
+      }
+    }),
+  );
+  const rows = lookupResults
+    .flat()
+    .filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object"));
+
+  return rows
+    .map((row) => {
+      const matchedEmail = additionalOwnerEmailFieldNames
+        .map((fieldName) => readString(row, fieldName))
+        .find((email) => normalizeEmail(email) === normalizedEmail);
+
+      if (!matchedEmail) {
+        return null;
+      }
+
+      const ownerId = readAnyString(row, ["system_id", "id", "owner_id", "o_id", "user_id"]);
+
+      if (!ownerId) {
+        return null;
+      }
+
+      const firstName = readAnyString(row, ["first_name", "owner_first_name"]);
+      const lastName = readAnyString(row, ["last_name", "owner_last_name"]);
+
+      return {
+        displayName: [firstName, lastName].filter(Boolean).join(" ") || null,
+        email: readAnyString(row, ["email", "owner_email", "username"]) ?? matchedEmail,
+        locationCity: client.city,
+        locationCode: client.code,
+        matchedBy: "additional_owner_email" as const,
+        matchedEmail,
+        ownerId,
+      };
+    })
+    .filter((match): match is OwnerEmailMatch => Boolean(match));
+}
+
+function dedupeOwnerEmailMatches(matches: OwnerEmailMatch[]) {
+  const seen = new Set<string>();
+
+  return matches.filter((match) => {
+    const key = `${match.locationCode}:${match.ownerId}:${match.matchedBy}:${normalizeEmail(match.matchedEmail)}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 async function upsertClientProfile({

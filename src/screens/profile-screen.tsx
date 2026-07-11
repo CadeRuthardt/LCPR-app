@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Image, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DeveloperDataPanel } from "@/components/composites";
@@ -11,17 +11,17 @@ import type { GingrDiscoveryAction } from "@/services/gingr";
 import { colors, radius, spacing } from "@/theme";
 import { useSession } from "@/utils/session";
 
-const accountRows: Array<{ icon: IconName; label: string }> = [
-  { icon: "user", label: "Personal Information" },
-  { icon: "credit-card", label: "Payment Methods" },
-  { icon: "bell", label: "Notifications" },
-  { icon: "lock", label: "Privacy & Security" },
+type ProfileModalId = "personal" | "notifications" | "privacy" | "contact";
+
+const accountRows: Array<{ icon: IconName; id: ProfileModalId; label: string }> = [
+  { icon: "user", id: "personal", label: "Personal Information" },
+  { icon: "bell", id: "notifications", label: "Notifications" },
+  { icon: "lock", id: "privacy", label: "Privacy & Security" },
 ];
 
-const supportRows: Array<{ icon: IconName; label: string }> = [
-  { icon: "help", label: "Help Center" },
-  { icon: "mail", label: "Contact Us" },
-  { icon: "info", label: "About Le Chateau" },
+const supportRows: Array<{ icon: IconName; id: ProfileModalId | "about"; label: string }> = [
+  { icon: "mail", id: "contact", label: "Contact Us" },
+  { icon: "info", id: "about", label: "About Le Chateau" },
 ];
 
 const gingrDebugActions: Array<{
@@ -33,6 +33,8 @@ const gingrDebugActions: Array<{
   { action: "reservation-types", label: "Test Reservation Types" },
   { action: "list-invoices", label: "Test List Invoices" },
   { action: "report-card-files", label: "Test Report Cards" },
+  { action: "owner-form", label: "Test Owner Form" },
+  { action: "owner-custom-field-search", label: "Test Owner Custom Fields" },
   { action: "current-owner", label: "Test Current Owner" },
   { action: "current-owner-profile", label: "Test Owner Profile" },
   { action: "link-current-client", label: "Test Client Link" },
@@ -54,6 +56,7 @@ export function ProfileScreen() {
   const [debugLoading, setDebugLoading] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
   const [rawOwner, setRawOwner] = useState<Record<string, unknown> | null>(null);
+  const [activeModal, setActiveModal] = useState<ProfileModalId | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -113,7 +116,14 @@ export function ProfileScreen() {
       <View style={styles.sectionWrap}>
         <Section title="Account" headerStyle={styles.sectionHeader}>
           {accountRows.map((item) => (
-            <ProfileRow key={item.label} icon={item.icon} label={item.label} />
+            <ProfileRow
+              key={item.label}
+              icon={item.icon}
+              label={item.label}
+              onPress={() => {
+                setActiveModal(item.id);
+              }}
+            />
           ))}
         </Section>
       </View>
@@ -121,7 +131,19 @@ export function ProfileScreen() {
       <View style={styles.sectionWrap}>
         <Section title="Support" headerStyle={styles.sectionHeader}>
           {supportRows.map((item) => (
-            <ProfileRow key={item.label} icon={item.icon} label={item.label} />
+            <ProfileRow
+              key={item.label}
+              icon={item.icon}
+              label={item.label}
+              onPress={() => {
+                if (item.id === "about") {
+                  void Linking.openURL("https://lechateaupetresort.com/");
+                  return;
+                }
+
+                setActiveModal(item.id);
+              }}
+            />
           ))}
         </Section>
       </View>
@@ -195,6 +217,17 @@ export function ProfileScreen() {
         variant="secondary"
         style={styles.logoutButton}
       />
+
+      <ProfileInfoModal
+        activeModal={activeModal}
+        clientDisplayName={displayName}
+        clientEmail={email}
+        clientId={client?.gingr_client_id ?? null}
+        onClose={() => {
+          setActiveModal(null);
+        }}
+        rawOwner={rawOwner}
+      />
     </Screen>
   );
 }
@@ -227,9 +260,211 @@ function formatDebugError(error: unknown) {
   return "Gingr discovery request failed.";
 }
 
-function ProfileRow({ icon, label }: { icon: IconName; label: string }) {
+function formatFieldLabel(key: string) {
+  return key
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatFieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") {
+    return "Not listed";
+  }
+
+  if (Array.isArray(value)) {
+    return value.length ? value.map((item) => formatFieldValue(item)).join(", ") : "Not listed";
+  }
+
+  if (typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+
+  return String(value);
+}
+
+function getPersonalInfoRows({
+  clientDisplayName,
+  clientEmail,
+  clientId,
+  rawOwner,
+}: {
+  clientDisplayName: string;
+  clientEmail: string;
+  clientId: string | null;
+  rawOwner: Record<string, unknown> | null;
+}) {
+  const baseRows = [
+    { label: "Name", value: clientDisplayName },
+    { label: "Email", value: clientEmail || "Not listed" },
+    { label: "Gingr Client ID", value: clientId ?? "Not linked" },
+  ];
+
+  if (!rawOwner) {
+    return baseRows;
+  }
+
+  const rawRows = Object.entries(rawOwner)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => ({
+      label: formatFieldLabel(key),
+      value: formatFieldValue(value),
+    }));
+
+  return [...baseRows, ...rawRows];
+}
+
+function ProfileInfoModal({
+  activeModal,
+  clientDisplayName,
+  clientEmail,
+  clientId,
+  onClose,
+  rawOwner,
+}: {
+  activeModal: ProfileModalId | null;
+  clientDisplayName: string;
+  clientEmail: string;
+  clientId: string | null;
+  onClose: () => void;
+  rawOwner: Record<string, unknown> | null;
+}) {
+  const isVisible = activeModal !== null;
+  const modalTitle = getModalTitle(activeModal);
+
   return (
-    <View style={styles.profileRow}>
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={isVisible}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text variant="heading" tone="primary" style={styles.modalTitle}>
+              {modalTitle}
+            </Text>
+            <Pressable accessibilityLabel="Close" onPress={onClose} style={styles.modalClose}>
+              <Icon color={colors.blackCherry} name="x" size={22} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            {activeModal === "personal" ? (
+              <PersonalInformationRows
+                rows={getPersonalInfoRows({
+                  clientDisplayName,
+                  clientEmail,
+                  clientId,
+                  rawOwner,
+                })}
+              />
+            ) : null}
+
+            {activeModal === "notifications" ? <NotificationsContent /> : null}
+            {activeModal === "privacy" ? <PrivacyContent /> : null}
+            {activeModal === "contact" ? <ContactContent /> : null}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function getModalTitle(activeModal: ProfileModalId | null) {
+  switch (activeModal) {
+    case "personal":
+      return "Personal Information";
+    case "notifications":
+      return "Notifications";
+    case "privacy":
+      return "Privacy & Security";
+    case "contact":
+      return "Contact Us";
+    default:
+      return "";
+  }
+}
+
+function PersonalInformationRows({ rows }: { rows: Array<{ label: string; value: string }> }) {
+  return (
+    <View style={styles.infoRows}>
+      {rows.map((row, index) => (
+        <View key={`${row.label}-${index}`} style={styles.infoRow}>
+          <Text variant="caption" tone="muted" style={styles.infoLabel}>
+            {row.label}
+          </Text>
+          <Text selectable variant="body" tone="secondary" style={styles.infoValue}>
+            {row.value}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function NotificationsContent() {
+  return (
+    <View style={styles.modalCopy}>
+      <Icon color={colors.goldenrod} name="bell" size={28} />
+      <Text variant="body" tone="secondary">
+        Notifications are read-only in this beta. Reservation confirmations, request updates, and
+        stay reminders will appear here as app notifications are enabled.
+      </Text>
+      <Text variant="caption" tone="muted">
+        Device notification preferences will be available in a future release.
+      </Text>
+    </View>
+  );
+}
+
+function PrivacyContent() {
+  return (
+    <View style={styles.modalCopy}>
+      <Icon color={colors.goldenrod} name="lock" size={28} />
+      <Text variant="body" tone="secondary">
+        Le Chateau uses your verified client record to show read-only profile, pet, reservation,
+        and camera access information in this beta.
+      </Text>
+      <Text variant="caption" tone="muted">
+        App sign-in is handled separately from Gingr portal access. Reservation changes, invoices,
+        deposits, and account updates still flow through the resort team and Gingr portal.
+      </Text>
+    </View>
+  );
+}
+
+function ContactContent() {
+  return (
+    <View style={styles.modalCopy}>
+      <Icon color={colors.goldenrod} name="mail" size={28} />
+      <Text variant="body" tone="secondary">
+        For reservation changes, deposits, invoices, or account updates, please contact the Le
+        Chateau team directly.
+      </Text>
+      <Button
+        icon="chevron-right"
+        onPress={() => {
+          void Linking.openURL("https://lechateaupetresort.com/contact/");
+        }}
+        title="Visit Contact Page"
+        variant="secondary"
+      />
+    </View>
+  );
+}
+
+function ProfileRow({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.profileRow, pressed && styles.profileRowPressed]}
+    >
       <View style={styles.profileRowCopy}>
         <Icon color={colors.graphite} name={icon} size={21} />
         <Text variant="body" tone="secondary">
@@ -237,7 +472,7 @@ function ProfileRow({ icon, label }: { icon: IconName; label: string }) {
         </Text>
       </View>
       <Icon color={colors.warmGray} name="chevron-right" size={20} />
-    </View>
+    </Pressable>
   );
 }
 
@@ -290,6 +525,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.md,
+  },
+  profileRowPressed: {
+    backgroundColor: colors.porcelain,
   },
   rawHeader: {
     alignItems: "flex-start",
@@ -366,5 +604,62 @@ const styles = StyleSheet.create({
   },
   debugCode: {
     fontFamily: "Courier",
+  },
+  modalOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(20, 14, 13, 0.58)",
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.xl,
+  },
+  modalCard: {
+    backgroundColor: colors.ivory,
+    borderColor: colors.creamBorder,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    maxHeight: "78%",
+    overflow: "hidden",
+    width: "100%",
+  },
+  modalHeader: {
+    alignItems: "center",
+    borderBottomColor: colors.creamBorder,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+    padding: spacing.lg,
+  },
+  modalTitle: {
+    flex: 1,
+  },
+  modalClose: {
+    alignItems: "center",
+    borderRadius: radius.pill,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  modalBody: {
+    gap: spacing.lg,
+    padding: spacing.lg,
+  },
+  modalCopy: {
+    gap: spacing.md,
+  },
+  infoRows: {
+    gap: spacing.sm,
+  },
+  infoRow: {
+    borderBottomColor: colors.creamBorder,
+    borderBottomWidth: 1,
+    gap: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  infoLabel: {
+    textTransform: "uppercase",
+  },
+  infoValue: {
+    lineHeight: 22,
   },
 });

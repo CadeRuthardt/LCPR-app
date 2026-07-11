@@ -43,7 +43,7 @@ export async function ensureCurrentClientProfile(userId: string) {
   const existingProfile = await getCurrentClientProfile(userId);
 
   if (existingProfile) {
-    return existingProfile;
+    return refreshExistingClientProfile(existingProfile);
   }
 
   const linkResult = await linkCurrentGingrClient();
@@ -56,6 +56,20 @@ export async function ensureCurrentClientProfile(userId: string) {
   }
 
   return linkResult.profile;
+}
+
+async function refreshExistingClientProfile(existingProfile: ClientProfile) {
+  try {
+    const linkResult = await linkCurrentGingrClient();
+
+    if (linkResult?.allowed && linkResult.profile) {
+      return linkResult.profile;
+    }
+  } catch (error) {
+    console.warn("Unable to refresh client profile from Gingr.", error);
+  }
+
+  return existingProfile;
 }
 
 export async function getCurrentClientPets() {

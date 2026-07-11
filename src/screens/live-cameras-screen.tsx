@@ -1,8 +1,9 @@
 import * as React from "react";
-import { ImageBackground, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ImageBackground, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { WebView } from "react-native-webview";
 
-import { BackChevronButton, Card, Icon, Screen, Section, Text } from "@/components/primitives";
+import { BackChevronButton, Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
 import { resortImages } from "@/data/mock-data";
 import { colors, radius, spacing } from "@/theme";
 import { router, useLocalSearchParams } from "expo-router";
@@ -25,6 +26,30 @@ type CameraLocation = {
   name: string;
   vipCameras: CameraPreview[];
 };
+
+type VipCameraAccessCode = {
+  cameraId: string;
+  locationId: string;
+};
+
+const vipCameraAccessCodes: Record<string, VipCameraAccessCode> = {
+  "E110-CASTLE": {
+    cameraId: "amarillo-e110-vip",
+    locationId: "amarillo",
+  },
+  "E210-PAW": {
+    cameraId: "amarillo-e210-vip",
+    locationId: "amarillo",
+  },
+  "E301-CHATEAU": {
+    cameraId: "amarillo-e301-vip",
+    locationId: "amarillo",
+  },
+};
+
+function getVipAccessStorageKey(locationId: string) {
+  return `lcpr.vip-camera-access.${locationId}`;
+}
 
 const cameraLocations: CameraLocation[] = [
   {
@@ -273,7 +298,6 @@ export function LiveCamerasScreen() {
   if (selectedLocation) {
     return (
       <CameraPlayer
-        cameras={[...(selectedLocation?.cameras ?? []), ...(selectedLocation?.vipCameras ?? [])]}
         camera={selectedCamera}
         location={selectedLocation}
         onBack={() => {
@@ -324,19 +348,92 @@ export function LiveCamerasScreen() {
 }
 
 function CameraPlayer({
-  cameras,
   camera,
   location,
   onBack,
   onSelectCamera,
 }: {
-  cameras: CameraPreview[];
   camera: CameraPreview | null;
   location: CameraLocation;
   onBack: () => void;
   onSelectCamera: (camera: CameraPreview | null) => void;
 }) {
   const isVipCamera = camera?.label === "VIP";
+  const publicCameras = location.cameras;
+  const vipCameras = location.vipCameras;
+  const [accessCode, setAccessCode] = React.useState("");
+  const [accessError, setAccessError] = React.useState<string | null>(null);
+  const [unlockedVipCameraId, setUnlockedVipCameraId] = React.useState<string | null>(null);
+  const unlockedVipCamera =
+    vipCameras.find((vipCamera) => vipCamera.id === unlockedVipCameraId) ?? null;
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadSavedVipCamera() {
+      try {
+        const savedCameraId = await AsyncStorage.getItem(getVipAccessStorageKey(location.id));
+
+        if (isMounted) {
+          setUnlockedVipCameraId(savedCameraId);
+        }
+      } catch {
+        if (isMounted) {
+          setUnlockedVipCameraId(null);
+        }
+      }
+    }
+
+    void loadSavedVipCamera();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [location.id]);
+
+  async function unlockVipCamera() {
+    const normalizedCode = accessCode.trim().toUpperCase();
+    const access = vipCameraAccessCodes[normalizedCode];
+
+    if (!access || access.locationId !== location.id) {
+      setAccessError("That VIP camera code could not be matched to this resort.");
+      return;
+    }
+
+    const matchedCamera = vipCameras.find((vipCamera) => vipCamera.id === access.cameraId);
+
+    if (!matchedCamera) {
+      setAccessError("That VIP camera is not available for this resort yet.");
+      return;
+    }
+
+    setAccessError(null);
+    setAccessCode("");
+    setUnlockedVipCameraId(matchedCamera.id);
+    onSelectCamera(matchedCamera);
+
+    try {
+      await AsyncStorage.setItem(getVipAccessStorageKey(location.id), matchedCamera.id);
+    } catch {
+      // Local persistence is a convenience only; keep access unlocked for this session.
+    }
+  }
+
+  async function removeVipAccess() {
+    setUnlockedVipCameraId(null);
+    setAccessCode("");
+    setAccessError(null);
+
+    if (camera?.id === unlockedVipCamera?.id) {
+      onSelectCamera(null);
+    }
+
+    try {
+      await AsyncStorage.removeItem(getVipAccessStorageKey(location.id));
+    } catch {
+      // Nothing else to do if local cleanup fails.
+    }
+  }
 
   return (
     <Screen contentStyle={styles.viewerContent}>
@@ -354,7 +451,7 @@ function CameraPlayer({
         horizontal
         showsHorizontalScrollIndicator={false}
       >
-        {cameras.map((option) => {
+        {publicCameras.map((option) => {
           const isActive = option.id === camera?.id;
 
           return (
@@ -375,7 +472,7 @@ function CameraPlayer({
           );
         })}
       </ScrollView>
-      {cameras.length > 3 ? (
+      {publicCameras.length > 3 ? (
         <View style={styles.cameraScrollHint}>
           <Text variant="caption" tone="muted">
             Swipe for more cameras
@@ -401,7 +498,7 @@ function CameraPlayer({
               originWhitelist={["*"]}
               pullToRefreshEnabled={false}
               setSupportMultipleWindows={false}
-              source={{ uri: camera.url }}
+              source={{ uri: getCameraEmbedUrl(camera.url) }}
               style={styles.webView}
               thirdPartyCookiesEnabled
               userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
@@ -451,7 +548,128 @@ function CameraPlayer({
         title="Camera Schedule"
       />
 
+      {vipCameras.length ? (
+        <VipCameraAccessCard
+          accessCode={accessCode}
+          accessError={accessError}
+          camera={camera}
+          onChangeAccessCode={(value) => {
+            setAccessCode(value);
+            setAccessError(null);
+          }}
+          onRemoveAccess={() => {
+            void removeVipAccess();
+          }}
+          onSelectCamera={onSelectCamera}
+          onSubmitAccessCode={() => {
+            void unlockVipCamera();
+          }}
+          unlockedCamera={unlockedVipCamera}
+        />
+      ) : null}
+
     </Screen>
+  );
+}
+
+function getCameraEmbedUrl(url: string) {
+  return url.replace("idogcamgingrviewv2.php", "idogcamviewer.php");
+}
+
+function VipCameraAccessCard({
+  accessCode,
+  accessError,
+  camera,
+  onChangeAccessCode,
+  onRemoveAccess,
+  onSelectCamera,
+  onSubmitAccessCode,
+  unlockedCamera,
+}: {
+  accessCode: string;
+  accessError: string | null;
+  camera: CameraPreview | null;
+  onChangeAccessCode: (value: string) => void;
+  onRemoveAccess: () => void;
+  onSelectCamera: (camera: CameraPreview) => void;
+  onSubmitAccessCode: () => void;
+  unlockedCamera: CameraPreview | null;
+}) {
+  const isActive = unlockedCamera?.id === camera?.id;
+
+  return (
+    <Card style={styles.vipAccessCard}>
+      <View style={styles.vipAccessHeader}>
+        <View style={styles.vipAccessIcon}>
+          <Icon color={colors.goldenrod} name="camera" size={20} />
+        </View>
+        <View style={styles.vipAccessCopy}>
+          <Text variant="title">VIP Camera Access</Text>
+          <Text variant="caption" tone="muted">
+            Enter the access code provided by reception for your suite camera.
+          </Text>
+        </View>
+      </View>
+
+      {unlockedCamera ? (
+        <View style={styles.vipUnlockedWrap}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onSelectCamera(unlockedCamera)}
+            style={({ pressed }) => [
+              styles.vipUnlockedRow,
+              isActive && styles.vipUnlockedRowActive,
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={styles.vipUnlockedCopy}>
+              <Text variant="body" tone={isActive ? "inverse" : "primary"}>
+                {unlockedCamera.title}
+              </Text>
+              <Text variant="caption" tone={isActive ? "inverse" : "muted"}>
+                VIP in-suite camera unlocked
+              </Text>
+            </View>
+            <Icon
+              color={isActive ? colors.ivory : colors.blackCherry}
+              name="chevron-right"
+              size={16}
+            />
+          </Pressable>
+          <Button
+            onPress={onRemoveAccess}
+            title="Remove VIP Access"
+            variant="ghost"
+            style={styles.removeVipButton}
+          />
+        </View>
+      ) : (
+        <View style={styles.vipAccessForm}>
+          <TextInput
+            autoCapitalize="characters"
+            autoCorrect={false}
+            onChangeText={onChangeAccessCode}
+            onSubmitEditing={onSubmitAccessCode}
+            placeholder="Enter access code"
+            placeholderTextColor={colors.warmGray}
+            returnKeyType="done"
+            style={styles.vipAccessInput}
+            value={accessCode}
+          />
+          {accessError ? (
+            <Text variant="caption" tone="brand">
+              {accessError}
+            </Text>
+          ) : null}
+          <Button
+            disabled={!accessCode.trim()}
+            icon="chevron-right"
+            onPress={onSubmitAccessCode}
+            title="Unlock Camera"
+          />
+        </View>
+      )}
+    </Card>
   );
 }
 
@@ -821,6 +1039,103 @@ const styles = StyleSheet.create({
     height: 46,
     justifyContent: "center",
     width: 46,
+  },
+  vipAccessCard: {
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  vipAccessCopy: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  vipAccessForm: {
+    gap: spacing.md,
+  },
+  vipAccessHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  vipAccessIcon: {
+    alignItems: "center",
+    backgroundColor: colors.champagne,
+    borderRadius: radius.pill,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  vipAccessInput: {
+    borderColor: colors.creamBorder,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    color: colors.blackCherry,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 16,
+    minHeight: 52,
+    paddingHorizontal: spacing.lg,
+  },
+  vipSelector: {
+    backgroundColor: colors.porcelain,
+    borderColor: colors.creamBorder,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  vipSelectorCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  vipSelectorHeader: {
+    gap: spacing.xs,
+    padding: spacing.lg,
+  },
+  vipSelectorIcon: {
+    alignItems: "center",
+    backgroundColor: colors.champagne,
+    borderRadius: radius.pill,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  vipSelectorRow: {
+    alignItems: "center",
+    borderTopColor: colors.creamBorder,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  vipSelectorRowActive: {
+    backgroundColor: colors.blackCherry,
+  },
+  vipSelectorRows: {
+    borderTopColor: colors.creamBorder,
+    borderTopWidth: 1,
+  },
+  vipUnlockedCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  vipUnlockedRow: {
+    alignItems: "center",
+    backgroundColor: colors.linen,
+    borderColor: colors.creamBorder,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  vipUnlockedRowActive: {
+    backgroundColor: colors.blackCherry,
+    borderColor: colors.blackCherry,
+  },
+  vipUnlockedWrap: {
+    gap: spacing.sm,
+  },
+  removeVipButton: {
+    minHeight: 36,
   },
   webView: {
     backgroundColor: colors.onyx,

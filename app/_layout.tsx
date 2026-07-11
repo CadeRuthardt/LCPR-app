@@ -12,7 +12,7 @@ import { useFonts } from "expo-font";
 import { Tabs, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { StatusBarStyle } from "expo-status-bar";
-import { View } from "react-native";
+import { Linking, View } from "react-native";
 
 import { colors, fonts, shadows, spacing } from "@/theme";
 import { Button, Icon, Text } from "@/components/primitives";
@@ -53,7 +53,7 @@ export default function RootLayout() {
 }
 
 function AuthGate() {
-  const { authError, client, isLoading, isSignedIn, signOut } = useSession();
+  const { client, isLoading, isSignedIn, signOut } = useSession();
   const segments = useSegments();
   const activeRoute = segments[0] ?? "index";
   const statusBarStyle: StatusBarStyle =
@@ -83,7 +83,7 @@ function AuthGate() {
     return (
       <>
         <StatusBar animated style="dark" />
-        <AccessPendingScreen errorMessage={authError} onSignOut={signOut} />
+        <AccessPendingScreen onSignOut={signOut} />
       </>
     );
   }
@@ -161,12 +161,15 @@ function AuthGate() {
 }
 
 function AccessPendingScreen({
-  errorMessage,
   onSignOut,
 }: {
-  errorMessage: string | null;
   onSignOut: () => Promise<void>;
 }) {
+  const supportEmailUrl =
+    "mailto:support@lechateaupetresort.com?subject=App%20Support%20Request";
+  const defaultMessage =
+    "Please use the email we have on file, or contact support if the problem continues.";
+
   return (
     <View
       style={{
@@ -179,13 +182,19 @@ function AccessPendingScreen({
       }}
     >
       <Text style={{ textAlign: "center" }} variant="heading">
-        We could not connect your profile yet.
+        We couldn't verify your account.
       </Text>
       <Text style={{ textAlign: "center" }} tone="secondary" variant="body">
-        {errorMessage ??
-          "Please contact Le Chateau so our team can match your app access to your client record."}
+        {defaultMessage}
       </Text>
       <Button onPress={onSignOut} title="Use a Different Email" variant="secondary" />
+      <Button
+        onPress={() => {
+          void Linking.openURL(supportEmailUrl);
+        }}
+        title="Contact Support"
+        variant="ghost"
+      />
     </View>
   );
 }

@@ -1,4 +1,5 @@
-import { ImageBackground, StyleSheet, View } from "react-native";
+import { router } from "expo-router";
+import { ImageBackground, Linking, Pressable, StyleSheet, View } from "react-native";
 
 import { Icon, Screen, Text } from "@/components/primitives";
 import { exploreFeatures, resortImages } from "@/data/mock-data";
@@ -11,12 +12,12 @@ const extraFeatures = [
     id: "daycare",
     title: "Daycare",
     description: "Play. Socialize. Thrive.",
-    imageUrl: resortImages.playYard,
+    imageUrl: "https://i0.wp.com/lechateaupetresort.com/wp-content/uploads/2025/09/dags.jpg?w=2048&ssl=1",
   },
   {
     id: "team",
-    title: "Meet Our Team",
-    description: "The people who treat your pets like family.",
+    title: "Join Our Team",
+    description: "Explore opportunities to care for pets like family.",
     imageUrl:
       "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=900&q=80",
   },
@@ -28,6 +29,14 @@ const extraFeatures = [
   },
 ] as const;
 
+const featureLinks: Record<string, string> = {
+  vip: "https://lechateaupetresort.com/services/",
+  spa: "https://lechateaupetresort.com/services/spa",
+  daycare: "https://lechateaupetresort.com/services/daycare",
+  team: "https://lechateaupetresort.com/careers/",
+  why: "https://lechateaupetresort.com/what-makes-us-different/",
+};
+
 export function ExploreScreen() {
   const items = [...exploreFeatures, ...extraFeatures];
 
@@ -36,25 +45,42 @@ export function ExploreScreen() {
       <ScreenHeader title="Explore the Resort" />
       <View style={styles.featureList}>
         {items.map((feature) => (
-          <ImageBackground
+          <Pressable
             key={feature.id}
-            source={{ uri: feature.imageUrl }}
-            imageStyle={styles.featureImage}
-            resizeMode="cover"
-            style={styles.featureCard}
+            accessibilityRole="button"
+            onPress={() => {
+              if (feature.id === "cat-resort") {
+                router.push({ pathname: "/live-cameras", params: { reset: Date.now() } });
+                return;
+              }
+
+              const link = featureLinks[feature.id];
+
+              if (link) {
+                void Linking.openURL(link);
+              }
+            }}
+            style={({ pressed }) => [styles.featureCard, pressed && styles.pressedCard]}
           >
-            <View style={styles.featureOverlay}>
-              <View style={styles.featureCopy}>
-                <Text variant="title" tone="inverse">
-                  {feature.title}
-                </Text>
-                <Text variant="caption" tone="inverse">
-                  {feature.description}
-                </Text>
+            <ImageBackground
+              source={{ uri: feature.imageUrl }}
+              imageStyle={styles.featureImage}
+              resizeMode="cover"
+              style={styles.featureImageFrame}
+            >
+              <View style={styles.featureOverlay}>
+                <View style={styles.featureCopy}>
+                  <Text variant="title" tone="inverse">
+                    {feature.title}
+                  </Text>
+                  <Text variant="caption" tone="inverse">
+                    {feature.description}
+                  </Text>
+                </View>
+                <Icon color={colors.goldenrod} name="chevron-right" size={18} />
               </View>
-              <Icon color={colors.goldenrod} name="chevron-right" size={18} />
-            </View>
-          </ImageBackground>
+            </ImageBackground>
+          </Pressable>
         ))}
       </View>
     </Screen>
@@ -70,6 +96,9 @@ const styles = StyleSheet.create({
     minHeight: 104,
     overflow: "hidden",
   },
+  featureImageFrame: {
+    flex: 1,
+  },
   featureImage: {
     borderRadius: radius.lg,
   },
@@ -84,5 +113,8 @@ const styles = StyleSheet.create({
   featureCopy: {
     flex: 1,
     gap: spacing.xxs,
+  },
+  pressedCard: {
+    opacity: 0.86,
   },
 });

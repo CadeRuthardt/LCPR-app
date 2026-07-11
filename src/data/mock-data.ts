@@ -97,8 +97,7 @@ export const exploreFeatures: ExploreFeature[] = [
     title: "Live Resort Cameras",
     description: "See what's happening around the resort.",
     label: "Live",
-    imageUrl:
-      "https://images.unsplash.com/photo-1583512603866-910c8542d257?auto=format&fit=crop&w=900&q=80",
+    imageUrl: "https://lechateaupetresort.com/wp-content/uploads/2025/10/Group-zoom-scaled.jpeg",
   },
 ];
 

@@ -9,6 +9,8 @@ export type GingrDiscoveryAction =
   | "request-catalog"
   | "list-invoices"
   | "report-card-files"
+  | "owner-form"
+  | "owner-custom-field-search"
   | "current-owner"
   | "current-owner-profile"
   | "current-pets"
