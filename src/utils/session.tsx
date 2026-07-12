@@ -32,15 +32,17 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const [session, setSession] = React.useState<Session | null>(null);
 
   const loadClient = React.useCallback(async (activeSession: Session | null) => {
+    setIsLoading(true);
     setSession(activeSession);
     clearClientDashboardCache();
 
-    if (!activeSession?.user) {
-      setClient(null);
-      return;
-    }
-
     try {
+      if (!activeSession?.user) {
+        setClient(null);
+        setAuthError(null);
+        return;
+      }
+
       setClient(null);
       const profile = await ensureCurrentClientProfile(activeSession.user.id);
       setClient(profile);
@@ -49,6 +51,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
       setClient(null);
       setAuthError(getFriendlyAuthError(error));
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 

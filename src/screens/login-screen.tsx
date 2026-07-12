@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
 import type { KeyboardEvent } from "react-native";
@@ -25,6 +26,8 @@ type LoginMode = "emailCode" | "password";
 export function LoginScreen() {
   const { authError, isConfigured, sendEmailCode, signInWithPassword, verifyEmailCode } =
     useSession();
+  const { height } = useWindowDimensions();
+  const isCompactLayout = height < 880;
   const [loginMode, setLoginMode] = React.useState<LoginMode>("emailCode");
   const [email, setEmail] = React.useState("");
   const [code, setCode] = React.useState("");
@@ -140,17 +143,35 @@ export function LoginScreen() {
       style={styles.background}
     >
       <View style={styles.backgroundOverlay}>
-        <View pointerEvents="none" style={styles.staticHeroLayer}>
-          <View style={styles.heroCopy}>
-            <Image source={logo} style={styles.logoImage} />
+        <View
+          pointerEvents="none"
+          style={[styles.staticHeroLayer, isCompactLayout && styles.staticHeroLayerCompact]}
+        >
+          <View style={[styles.heroCopy, isCompactLayout && styles.heroCopyCompact]}>
+            <Image
+              source={logo}
+              style={[styles.logoImage, isCompactLayout && styles.logoImageCompact]}
+            />
 
             <View style={styles.headlineBlock}>
-              <Text variant="hero" tone="inverse" style={styles.heroHeadline}>
+              <Text
+                variant="hero"
+                tone="inverse"
+                style={[styles.heroHeadline, isCompactLayout && styles.heroHeadlineCompact]}
+              >
                 Come Sense
               </Text>
-              <Text variant="hero" tone="inverse" style={styles.heroHeadline}>
+              <Text
+                variant="hero"
+                tone="inverse"
+                style={[styles.heroHeadline, isCompactLayout && styles.heroHeadlineCompact]}
+              >
                 the{" "}
-                <Text variant="hero" tone="accent" style={styles.heroAccent}>
+                <Text
+                  variant="hero"
+                  tone="accent"
+                  style={[styles.heroAccent, isCompactLayout && styles.heroHeadlineCompact]}
+                >
                   Difference.
                 </Text>
               </Text>
@@ -162,7 +183,11 @@ export function LoginScreen() {
               <View style={styles.dividerLine} />
             </View>
 
-            <Text variant="heroBody" tone="inverse" style={styles.heroSubline}>
+            <Text
+              variant="heroBody"
+              tone="inverse"
+              style={[styles.heroSubline, isCompactLayout && styles.heroSublineCompact]}
+            >
               Luxury care and exceptional experiences for pets who deserve the very best.
             </Text>
           </View>
@@ -206,6 +231,9 @@ export function LoginScreen() {
                   keyboardType="email-address"
                   onChangeText={setEmail}
                   placeholder="Email"
+                  multiline={false}
+                  numberOfLines={1}
+                  style={styles.emailField}
                   textContentType="username"
                   value={email}
                 />
@@ -238,6 +266,9 @@ export function LoginScreen() {
                   keyboardType="email-address"
                   onChangeText={setEmail}
                   placeholder="Email on file"
+                  multiline={false}
+                  numberOfLines={1}
+                  style={styles.emailField}
                   textContentType="username"
                   value={email}
                 />
@@ -312,11 +343,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     paddingHorizontal: spacing.lg,
-    paddingTop: 70,
+    paddingTop: 62,
     position: "absolute",
     right: 0,
     top: 0,
     zIndex: 0,
+  },
+  staticHeroLayerCompact: {
+    paddingTop: 56,
   },
   dismissLayer: {
     bottom: 0,
@@ -334,19 +368,32 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   logoImage: {
-    height: 190,
+    height: 168,
     resizeMode: "contain",
-    width: 286,
+    width: 254,
+  },
+  logoImageCompact: {
+    height: 150,
+    width: 226,
   },
   heroCopy: {
     alignItems: "center",
-    gap: spacing.xl,
+    gap: spacing.lg,
+  },
+  heroCopyCompact: {
+    gap: spacing.sm,
   },
   headlineBlock: {
     alignItems: "center",
   },
   heroHeadline: {
+    fontSize: 38,
+    lineHeight: 47,
     textAlign: "center",
+  },
+  heroHeadlineCompact: {
+    fontSize: 34,
+    lineHeight: 41,
   },
   heroAccent: {
     fontFamily: fonts.displayItalic,
@@ -363,8 +410,15 @@ const styles = StyleSheet.create({
     height: 1,
   },
   heroSubline: {
-    maxWidth: 320,
+    fontSize: 17,
+    lineHeight: 25,
+    maxWidth: 300,
     textAlign: "center",
+  },
+  heroSublineCompact: {
+    fontSize: 15,
+    lineHeight: 21,
+    maxWidth: 285,
   },
   loginCard: {
     backgroundColor: colors.porcelain,
@@ -377,5 +431,10 @@ const styles = StyleSheet.create({
   },
   formGroup: {
     gap: spacing.md,
+  },
+  emailField: {
+    fontSize: 14,
+    lineHeight: 20,
+    paddingHorizontal: spacing.md,
   },
 });

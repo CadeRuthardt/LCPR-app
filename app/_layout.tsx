@@ -142,6 +142,13 @@ function AuthGate() {
           }}
         />
         <Tabs.Screen
+          name="document-upload"
+          options={{
+            href: null,
+            title: "Upload Documents",
+          }}
+        />
+        <Tabs.Screen
           name="pet-profile"
           options={{
             href: null,

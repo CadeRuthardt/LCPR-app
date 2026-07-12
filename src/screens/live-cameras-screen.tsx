@@ -5,6 +5,7 @@ import { WebView } from "react-native-webview";
 
 import { BackChevronButton, Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
 import { resortImages } from "@/data/mock-data";
+import { getGingrLocationCities, type GingrLocation } from "@/services/gingr";
 import { colors, radius, spacing } from "@/theme";
 import { router, useLocalSearchParams } from "expo-router";
 
@@ -51,7 +52,7 @@ function getVipAccessStorageKey(locationId: string) {
   return `lcpr.vip-camera-access.${locationId}`;
 }
 
-const cameraLocations: CameraLocation[] = [
+const cameraLocationCatalog: CameraLocation[] = [
   {
     cameras: [
       {
@@ -283,17 +284,104 @@ const cameraLocations: CameraLocation[] = [
   },
 ];
 
+const cameraLocationCatalogById = cameraLocationCatalog.reduce<Record<string, CameraLocation>>(
+  (locationsById, location) => {
+    locationsById[location.id] = location;
+    return locationsById;
+  },
+  {},
+);
+
+function normalizeCameraLocationId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getCameraLocationFromGingrLocation(location: GingrLocation) {
+  const locationId = normalizeCameraLocationId(location.city || location.name || "");
+  const cameraLocation = cameraLocationCatalogById[locationId];
+
+  if (!cameraLocation) {
+    return null;
+  }
+
+  return {
+    ...cameraLocation,
+    id: locationId,
+    name: location.city || cameraLocation.name,
+  };
+}
+
 export function LiveCamerasScreen() {
   const { reset } = useLocalSearchParams<{ reset?: string }>();
+  const [cameraLocations, setCameraLocations] = React.useState<CameraLocation[]>([]);
+  const [isLoadingLocations, setIsLoadingLocations] = React.useState(true);
+  const [locationError, setLocationError] = React.useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = React.useState<string | null>(null);
   const [selectedCamera, setSelectedCamera] = React.useState<CameraPreview | null>(null);
   const selectedLocation =
     cameraLocations.find((location) => location.id === selectedLocationId) ?? null;
 
   React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadCameraLocations() {
+      setIsLoadingLocations(true);
+      setLocationError(null);
+
+      try {
+        const gingrLocations = await getGingrLocationCities();
+        const mappedLocations = gingrLocations
+          .map(getCameraLocationFromGingrLocation)
+          .filter((location): location is CameraLocation => Boolean(location));
+
+        if (!isMounted) {
+          return;
+        }
+
+        setCameraLocations(mappedLocations);
+        setLocationError(
+          mappedLocations.length
+            ? null
+            : "No Gingr locations with configured cameras are available yet.",
+        );
+      } catch {
+        if (isMounted) {
+          setCameraLocations([]);
+          setLocationError("We could not load camera locations from Gingr right now.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingLocations(false);
+        }
+      }
+    }
+
+    void loadCameraLocations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
     setSelectedCamera(null);
     setSelectedLocationId(null);
   }, [reset]);
+
+  React.useEffect(() => {
+    if (
+      selectedLocationId &&
+      !cameraLocations.some((location) => location.id === selectedLocationId)
+    ) {
+      setSelectedCamera(null);
+      setSelectedLocationId(null);
+    }
+  }, [cameraLocations, selectedLocationId]);
 
   if (selectedLocation) {
     return (
@@ -332,7 +420,23 @@ export function LiveCamerasScreen() {
       </View>
 
       <View style={styles.locationList}>
-        {cameraLocations.map((location) => (
+        {isLoadingLocations ? (
+          <Card style={styles.locationStatusCard}>
+            <Text variant="title">Preparing camera locations...</Text>
+            <Text variant="body" tone="secondary">
+              Checking Gingr for active resort locations.
+            </Text>
+          </Card>
+        ) : null}
+        {!isLoadingLocations && locationError ? (
+          <Card style={styles.locationStatusCard}>
+            <Text variant="title">Camera locations unavailable</Text>
+            <Text variant="body" tone="secondary">
+              {locationError}
+            </Text>
+          </Card>
+        ) : null}
+        {!isLoadingLocations ? cameraLocations.map((location) => (
           <LocationCard
             key={location.id}
             location={location}
@@ -341,7 +445,7 @@ export function LiveCamerasScreen() {
               setSelectedLocationId(location.id);
             }}
           />
-        ))}
+        )) : null}
       </View>
     </Screen>
   );
@@ -961,6 +1065,10 @@ const styles = StyleSheet.create({
   },
   locationPreview: {
     height: 150,
+  },
+  locationStatusCard: {
+    gap: spacing.xs,
+    padding: spacing.lg,
   },
   infoCard: {
     alignItems: "center",

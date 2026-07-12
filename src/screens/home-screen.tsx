@@ -119,8 +119,18 @@ export function HomeScreen() {
       refreshing={isRefreshing}
       topSafeArea={false}
     >
-      <View style={styles.logoWrap}>
+      <View style={styles.quickActionHeader}>
+        <HomeQuickAction
+          icon="mail"
+          label="Upload Records"
+          onPress={() => router.push("/document-upload")}
+        />
         <Image source={logo} style={styles.logoImage} />
+        <HomeQuickAction
+          icon="calendar"
+          label="Book Reservation"
+          onPress={() => router.push({ pathname: "/request-reservation", params: { returnTo: "/" } })}
+        />
       </View>
 
       <ImageBackground
@@ -322,6 +332,30 @@ function HomePanelVisual({
         />
       ))}
     </View>
+  );
+}
+
+function HomeQuickAction({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: "calendar" | "mail";
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.quickAction, pressed && styles.quickActionPressed]}
+    >
+      <Icon color={colors.goldenrod} name={icon} size={18} />
+      <Text numberOfLines={2} style={styles.quickActionLabel} tone="inverse" variant="caption">
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -548,13 +582,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   logoImage: {
-    height: 106,
+    height: 94,
     resizeMode: "contain",
-    width: 190,
+    width: 156,
   },
-  logoWrap: {
+  quickActionHeader: {
     alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
     paddingBottom: 0,
+  },
+  quickAction: {
+    alignItems: "center",
+    borderColor: colors.overlayIvoryStrong,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.xxs,
+    justifyContent: "center",
+    minHeight: 64,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    width: 86,
+  },
+  quickActionLabel: {
+    fontFamily: fonts.bodyBold,
+    textAlign: "center",
+  },
+  quickActionPressed: {
+    opacity: 0.78,
   },
   hero: {
     borderColor: colors.overlayIvoryStrong,

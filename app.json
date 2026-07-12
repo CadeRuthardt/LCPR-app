@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Le Chateau 2.0",
+    "name": "Le Chateau",
     "slug": "LCPR-app",
     "scheme": "lcpr",
     "version": "2.0.0",
@@ -33,9 +33,18 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
-          "backgroundColor": "#fafaf0",
+          "backgroundColor": "#292929",
           "resizeMode": "contain",
           "imageWidth": 220
+        }
+      ],
+      "expo-mail-composer",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow Le Chateau to use your camera to attach vaccination records.",
+          "photosPermission": "Allow Le Chateau to access photos so you can attach vaccination records.",
+          "microphonePermission": false
         }
       ]
     ],

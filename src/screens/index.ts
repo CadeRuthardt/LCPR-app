@@ -1,4 +1,5 @@
 export { ExploreScreen } from "./explore-screen";
+export { DocumentUploadScreen } from "./document-upload-screen";
 export { HomeScreen } from "./home-screen";
 export { LoginScreen } from "./login-screen";
 export { LiveCamerasScreen } from "./live-cameras-screen";

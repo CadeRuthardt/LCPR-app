@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -32,6 +33,7 @@ import type { ReservationRequest } from "@/types/database";
 import { goBackOrReplace, resolveFallbackRoute } from "@/utils/navigation";
 
 const steps = ["Pets", "Location", "Type", "Dates", "Experience", "Details"] as const;
+const locationPlaceholder = "Choose location";
 const fallbackLocationOptions = ["Amarillo", "Wichita Falls", "New Braunfels"];
 const fallbackReservationTypeOptions = ["Boarding", "Daycare", "Spa"];
 const dogAmenityPackages = ["Classic", "Premium", "Platinum VIP"];
@@ -60,7 +62,9 @@ type ReservationTypeOption = (typeof fallbackReservationTypeOptions)[number];
 
 export function RequestReservationScreen() {
   const params = useLocalSearchParams<{ petIds?: string; returnTo?: string }>();
+  const { height } = useWindowDimensions();
   const fallbackRoute = resolveFallbackRoute(params.returnTo, "/reservations");
+  const isCompactLayout = height < 880;
   const initialPetIds = React.useMemo(
     () => new Set((params.petIds ?? "").split(",").filter(Boolean)),
     [params.petIds],
@@ -80,7 +84,7 @@ export function RequestReservationScreen() {
   const [requestCatalog, setRequestCatalog] =
     React.useState<GingrReservationRequestCatalog | null>(null);
   const [locationOptions, setLocationOptions] = React.useState(fallbackLocationOptions);
-  const [location, setLocation] = React.useState(fallbackLocationOptions[0]);
+  const [location, setLocation] = React.useState("");
   const [amenityPackage, setAmenityPackage] = React.useState(dogAmenityPackages[0]);
   const [isLoadingCatalog, setIsLoadingCatalog] = React.useState(true);
   const [isLoadingPets, setIsLoadingPets] = React.useState(true);
@@ -115,7 +119,7 @@ export function RequestReservationScreen() {
 
         if (cityOptions.length > 0) {
           setLocationOptions(cityOptions);
-          setLocation((current) => (cityOptions.includes(current) ? current : cityOptions[0]));
+          setLocation((current) => (cityOptions.includes(current) ? current : ""));
         }
 
         if (requestTypeOptions.length > 0) {
@@ -165,6 +169,7 @@ export function RequestReservationScreen() {
   const isDaycareRequest = reservationType === "Daycare";
   const isSpaRequest = reservationType === "Spa";
   const isWichitaFallsLocation = location.toLowerCase().includes("wichita falls");
+  const hasSelectedLocation = locationOptions.includes(location);
   const availableReservationTypeOptions = React.useMemo(
     () => reservationTypeOptions.filter((option) => !(isCatRequest && option === "Spa")),
     [isCatRequest, reservationTypeOptions],
@@ -226,7 +231,7 @@ export function RequestReservationScreen() {
   const canSubmit =
     selectedPetIds.size > 0 &&
     petsMissingCurrentVaccinations.length === 0 &&
-    Boolean(location) &&
+    hasSelectedLocation &&
     Boolean(reservationType) &&
     hasValidDateSelection &&
     hasValidTimeSelection &&
@@ -291,15 +296,11 @@ export function RequestReservationScreen() {
 
   function canAdvanceFromStep(step: RequestStep) {
     if (step === "Pets") {
-      return (
-        selectedPetIds.size > 0 &&
-        petsMissingCurrentVaccinations.length === 0 &&
-        !isMixedSpeciesRequest
-      );
+      return selectedPetIds.size > 0 && !isMixedSpeciesRequest;
     }
 
     if (step === "Location") {
-      return Boolean(location);
+      return hasSelectedLocation && petsMissingCurrentVaccinations.length === 0;
     }
 
     if (step === "Type") {
@@ -411,7 +412,7 @@ export function RequestReservationScreen() {
     setEnrichmentEnabled(false);
     setEnrichmentFrequency(enrichmentFrequencies[0]);
     setErrorMessage(null);
-    setLocation(locationOptions[0] ?? fallbackLocationOptions[0]);
+    setLocation("");
     setAmenityPackage(dogAmenityPackages[0]);
     setIsSubmitting(false);
     setNotes("");
@@ -434,6 +435,22 @@ export function RequestReservationScreen() {
 
   function handleExitPress() {
     setExitConfirmVisible(true);
+  }
+
+  function handleVaccinationUploadPress() {
+    if (!hasSelectedLocation) {
+      return;
+    }
+
+    const petIds = petsMissingCurrentVaccinations.map((pet) => pet.id).join(",");
+
+    router.push({
+      pathname: "/document-upload",
+      params: {
+        location,
+        petIds,
+      },
+    });
   }
 
   async function handleSubmit() {
@@ -508,7 +525,7 @@ export function RequestReservationScreen() {
 
   return (
     <Screen scroll={false} contentStyle={styles.flowRoot}>
-      <View style={styles.stickyHeader}>
+      <View style={[styles.stickyHeader, isCompactLayout && styles.stickyHeaderCompact]}>
         <View style={styles.header}>
           <Pressable
             accessibilityLabel="Exit reservation request"
@@ -518,7 +535,10 @@ export function RequestReservationScreen() {
           >
             <Icon color={colors.blackCherry} name="x" size={18} />
           </Pressable>
-          <Text variant="title" style={styles.headerTitle}>
+          <Text
+            variant="title"
+            style={[styles.headerTitle, isCompactLayout && styles.headerTitleCompact]}
+          >
             New Reservation Request
           </Text>
           <View style={styles.headerSpacer} />
@@ -546,7 +566,10 @@ export function RequestReservationScreen() {
         <ScrollView
           ref={stepScrollRef}
           automaticallyAdjustKeyboardInsets
-          contentContainerStyle={styles.flowContent}
+          contentContainerStyle={[
+            styles.flowContent,
+            isCompactLayout && styles.flowContentCompact,
+          ]}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           nestedScrollEnabled
@@ -573,8 +596,14 @@ export function RequestReservationScreen() {
                   key={pet.id}
                   onPress={() => togglePet(pet.id)}
                 >
-                  <Card variant="elevated" style={styles.petOption}>
-                    <Image source={{ uri: pet.imageUrl }} style={styles.petAvatar} />
+                  <Card
+                    variant="elevated"
+                    style={[styles.petOption, isCompactLayout && styles.petOptionCompact]}
+                  >
+                    <Image
+                      source={{ uri: pet.imageUrl }}
+                      style={[styles.petAvatar, isCompactLayout && styles.petAvatarCompact]}
+                    />
                     <View style={styles.petCopy}>
                       <Text variant="title">{pet.name}</Text>
                       <Text variant="caption" tone="secondary">
@@ -600,15 +629,6 @@ export function RequestReservationScreen() {
                 </Text>
               </Card>
             ) : null}
-            {petsMissingCurrentVaccinations.length > 0 ? (
-              <Card style={styles.guidanceCard}>
-                <Text variant="title">Vaccinations need attention</Text>
-                <Text variant="body" tone="secondary">
-                  {petsMissingCurrentVaccinations.map((pet) => pet.name).join(", ")} must have
-                  current vaccination records before a reservation can be requested.
-                </Text>
-              </Card>
-            ) : null}
           </View>
         </>
       ) : null}
@@ -630,10 +650,38 @@ export function RequestReservationScreen() {
             onSelect={(option) => {
               setLocation(option);
               setActiveLocationDropdown(false);
+              setStartDate("");
+              setEndDate("");
+              setStartTime("");
+              setEndTime("");
+              setActiveTimeField(null);
             }}
             options={locationOptions}
+            placeholder={locationPlaceholder}
             value={location}
           />
+          {petsMissingCurrentVaccinations.length > 0 ? (
+            <Card style={styles.guidanceCard}>
+              <Text variant="title">Vaccinations need attention</Text>
+              <Text variant="body" tone="secondary">
+                {formatPetNameList(petsMissingCurrentVaccinations.map((pet) => pet.name))} must
+                have current vaccination records before this reservation request can continue.
+              </Text>
+              {hasSelectedLocation ? (
+                <Button
+                  icon="mail"
+                  onPress={handleVaccinationUploadPress}
+                  title={`Upload records for ${location}`}
+                  variant="secondary"
+                  style={styles.guidanceAction}
+                />
+              ) : (
+                <Text tone="muted" variant="caption">
+                  Choose a location first so the records go to the right reception team.
+                </Text>
+              )}
+            </Card>
+          ) : null}
         </View>
       ) : null}
 
@@ -905,7 +953,7 @@ export function RequestReservationScreen() {
 
       {errorMessage ? <Text tone="secondary">{errorMessage}</Text> : null}
 
-      <View style={styles.footerActions}>
+      <View style={[styles.footerActions, isCompactLayout && styles.footerActionsCompact]}>
         {activeStepIndex > 0 ? (
           <BackChevronButton accessibilityLabel="Previous step" onPress={goToPreviousStep} />
         ) : null}
@@ -953,6 +1001,7 @@ type DropdownFieldProps = {
   onPress: () => void;
   onSelect: (value: string) => void;
   options: readonly string[];
+  placeholder?: string;
   value: string;
 };
 
@@ -1144,12 +1193,22 @@ function TimeField({
   );
 }
 
-function DropdownField({ active, label, onPress, onSelect, options, value }: DropdownFieldProps) {
+function DropdownField({
+  active,
+  label,
+  onPress,
+  onSelect,
+  options,
+  placeholder = "Choose",
+  value,
+}: DropdownFieldProps) {
+  const displayValue = value || placeholder;
+
   return (
     <View style={styles.datePickerWrap}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${label}: ${value}`}
+        accessibilityLabel={`${label}: ${displayValue}`}
         onPress={onPress}
         style={({ pressed }) => [
           styles.dateField,
@@ -1161,7 +1220,9 @@ function DropdownField({ active, label, onPress, onSelect, options, value }: Dro
           <Text variant="caption" tone="muted">
             {label}
           </Text>
-          <Text variant="body">{value}</Text>
+          <Text variant="body" tone={value ? "primary" : "muted"}>
+            {displayValue}
+          </Text>
         </View>
         <Icon color={colors.blackCherry} name="chevron-right" size={16} />
       </Pressable>
@@ -1537,6 +1598,16 @@ function formatDisplayTime(value: string) {
   });
 }
 
+function formatPetNameList(petNames: string[]) {
+  const names = petNames.filter(Boolean);
+
+  if (names.length <= 2) {
+    return names.join(" & ");
+  }
+
+  return `${names.slice(0, -1).join(", ")}, & ${names[names.length - 1]}`;
+}
+
 function toggleSetValue(current: Set<string>, value: string) {
   const next = new Set(current);
 
@@ -1667,14 +1738,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
   },
+  flowContentCompact: {
+    gap: spacing.md,
+    paddingBottom: 92,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
   flowRoot: {
     flex: 1,
   },
   footerActions: {
     gap: spacing.sm,
   },
+  footerActionsCompact: {
+    gap: spacing.xs,
+  },
   formGroup: {
     gap: spacing.sm,
+  },
+  guidanceAction: {
+    marginTop: spacing.xs,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
   },
   guidanceCard: {
     gap: spacing.sm,
@@ -1690,6 +1775,10 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     textAlign: "center",
+  },
+  headerTitleCompact: {
+    fontSize: 18,
+    lineHeight: 22,
   },
   monthButton: {
     alignItems: "center",
@@ -1759,6 +1848,10 @@ const styles = StyleSheet.create({
     height: 72,
     width: 72,
   },
+  petAvatarCompact: {
+    height: 64,
+    width: 64,
+  },
   petCopy: {
     flex: 1,
     gap: spacing.xxs,
@@ -1771,6 +1864,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     padding: spacing.md,
+  },
+  petOptionCompact: {
+    gap: spacing.sm,
+    padding: spacing.sm,
   },
   progressCopy: {
     gap: spacing.xxs,
@@ -1816,6 +1913,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.sm,
     zIndex: 2,
+  },
+  stickyHeaderCompact: {
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
   },
   timeEmpty: {
     alignItems: "center",
