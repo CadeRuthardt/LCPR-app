@@ -1,11 +1,11 @@
-export { ExploreScreen } from "./explore-screen";
+export { MoreRedesignScreen as ExploreScreen } from "./more-redesign-screen";
 export { DocumentUploadScreen } from "./document-upload-screen";
-export { HomeScreen } from "./home-screen";
+export { HomeRedesignScreen as HomeScreen } from "./home-redesign-screen";
 export { LoginScreen } from "./login-screen";
 export { LiveCamerasScreen } from "./live-cameras-screen";
-export { PetsScreen } from "./pets-screen";
+export { PetsRedesignScreen as PetsScreen } from "./pets-redesign-screen";
 export { PetProfileScreen } from "./pet-profile-screen";
-export { ProfileScreen } from "./profile-screen";
+export { AccountRedesignScreen as ProfileScreen } from "./account-redesign-screen";
 export { ReservationDetailScreen } from "./reservation-detail-screen";
 export { RequestReservationScreen } from "./request-reservation-screen";
-export { ReservationsScreen } from "./reservations-screen";
+export { ReservationsRedesignScreen as ReservationsScreen } from "./reservations-redesign-screen";

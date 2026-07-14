@@ -15,7 +15,7 @@ import * as React from "react";
 
 import { Button, Card, Icon, Text, TextField } from "@/components/primitives";
 import { resortImages } from "@/data/mock-data";
-import { colors, fonts, radius, spacing } from "@/theme";
+import { colors, fonts, radius, spacing, typography } from "@/theme";
 import { getFriendlyAuthError } from "@/utils/auth-errors";
 import { useSession } from "@/utils/session";
 
@@ -205,8 +205,8 @@ export function LoginScreen() {
         <Animated.View style={[styles.formLayer, { bottom: formBottom }]}>
           <Card variant="elevated" style={styles.loginCard}>
             <View style={styles.cardHeaderCopy}>
-              <Text variant="heading">{headerTitle}</Text>
-              <Text variant="body" tone="secondary">
+              <Text style={typography.sectionTitle}>{headerTitle}</Text>
+              <Text style={typography.bodySecondary}>
                 {headerBody}
               </Text>
             </View>
@@ -274,9 +274,9 @@ export function LoginScreen() {
                 />
                 <Button
                   disabled={!canSendCode || !isConfigured || isSubmitting}
-                  icon="chevron-right"
+                  icon="mail"
                   onPress={handleSendCode}
-                  title={isSubmitting ? "Sending..." : "Send Email Code"}
+                  title={isSubmitting ? "Sending..." : "Continue"}
                 />
                 <Button
                   onPress={() => switchLoginMode("password")}
@@ -287,6 +287,7 @@ export function LoginScreen() {
             ) : (
               <View style={styles.formGroup}>
                 <TextField
+                  inputMode="numeric"
                   keyboardType="number-pad"
                   maxLength={otpCodeLength}
                   onChangeText={(value) => setCode(value.replace(/\D/g, ""))}
@@ -336,7 +337,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backgroundOverlay: {
-    backgroundColor: colors.overlayDeep,
+    backgroundColor: "rgba(0, 0, 0, 0.60)",
     flex: 1,
   },
   staticHeroLayer: {

@@ -16,6 +16,7 @@ type DiscoveryAction =
   | "reservation-detail"
   | "current-reservations"
   | "reservation-detail-test"
+  | "estimate-test"
   | "current-client-snapshot";
 
 type DiscoveryRequest = {
@@ -256,6 +257,13 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (action === "estimate-test") {
+      return jsonResponse({
+        action,
+        data: await buildEstimateTestForClients(gingrBaseUrl, gingrClients, authResult.user),
+      });
+    }
+
     if (action === "current-client-snapshot") {
       return jsonResponse({
         action,
@@ -266,7 +274,7 @@ Deno.serve(async (request) => {
     return jsonResponse(
       {
         error:
-          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, owner-form, owner-custom-field-search, current-owner, current-owner-profile, link-current-client, current-pets, current-reservations, reservation-detail, reservation-detail-test, or current-client-snapshot.",
+          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, owner-form, owner-custom-field-search, current-owner, current-owner-profile, link-current-client, current-pets, current-reservations, reservation-detail, reservation-detail-test, estimate-test, or current-client-snapshot.",
       },
       400,
     );
@@ -1364,6 +1372,93 @@ async function buildReservationDetailTest(baseUrl: string, apiKey: string, user:
   };
 }
 
+async function buildEstimateTestForClients(
+  baseUrl: string,
+  clients: GingrClient[],
+  user: AuthUser,
+) {
+  const locations = await Promise.all(
+    clients.map(async (client) => {
+      try {
+        const owner = await findOwnerByEmail(baseUrl, client.apiKey, user);
+        const ownerId = extractFirstId(owner);
+
+        if (!ownerId) {
+          return {
+            city: client.city,
+            code: client.code,
+            note: "No owner match was found for this location.",
+            ownerId: null,
+            estimates: [],
+          };
+        }
+
+        const reservationsResponse = await gingrPost(
+          baseUrl,
+          client.apiKey,
+          "/api/v1/reservations_by_owner",
+          { id: String(ownerId) },
+        );
+        const rawReservations = unwrapGingrArray(reservationsResponse);
+        const preferredReservation = selectReservationForDetailTest(rawReservations);
+        const preferredReservationId = preferredReservation
+          ? readAnyString(preferredReservation, ["r_id", "reservation_id", "id"])
+          : null;
+        const reservationIds = uniqueStrings([
+          ...(preferredReservationId ? [preferredReservationId] : []),
+          ...summarizeReservationIds(rawReservations),
+        ]).slice(0, 3);
+        const estimates = await Promise.all(
+          reservationIds.map(async (reservationId) => {
+            try {
+              const rawEstimate = await gingrGet(
+                baseUrl,
+                client.apiKey,
+                "/api/v1/existing_reservation_estimate",
+                { id: reservationId },
+              );
+              const unwrappedEstimate = unwrapGingrData(rawEstimate) ?? rawEstimate;
+
+              return {
+                reservationId,
+                responseFieldKeys: readObjectKeys(unwrappedEstimate),
+                normalizedEstimate: normalizeReservationEstimate(rawEstimate),
+                rawEstimate: redact(rawEstimate),
+              };
+            } catch (error) {
+              return {
+                reservationId,
+                error: error instanceof Error ? error.message : "Estimate lookup failed.",
+              };
+            }
+          }),
+        );
+
+        return {
+          city: client.city,
+          code: client.code,
+          ownerId: String(ownerId),
+          reservationCount: rawReservations.length,
+          estimates,
+        };
+      } catch (error) {
+        return {
+          city: client.city,
+          code: client.code,
+          error: error instanceof Error ? error.message : "Estimate discovery failed.",
+          estimates: [],
+        };
+      }
+    }),
+  );
+
+  return {
+    note:
+      "Raw estimates are redacted. Compare each rawEstimate with normalizedEstimate to identify fields the client parser is missing.",
+    locations,
+  };
+}
+
 async function buildReservationDetail(
   baseUrl: string,
   apiKey: string,
@@ -1424,11 +1519,32 @@ async function buildReservationDetail(
   const selectedReservations = requestedIds
     .map((id) => reservationById.get(id))
     .filter((reservation): reservation is Record<string, unknown> => Boolean(reservation));
-  const estimate = await gingrGet(baseUrl, apiKey, "/api/v1/existing_reservation_estimate", {
-    id: selectedReservations[0]
-      ? readAnyString(selectedReservations[0], ["r_id", "reservation_id", "id"]) ?? requestedIds[0]
-      : requestedIds[0],
-  }).then(normalizeReservationEstimate).catch(() => null);
+  const estimateEntries = await Promise.all(
+    selectedReservations.map(async (reservation) => {
+      const reservationId = readAnyString(reservation, ["r_id", "reservation_id", "id"]);
+
+      if (!reservationId) {
+        return null;
+      }
+
+      const estimate = await gingrGet(baseUrl, apiKey, "/api/v1/existing_reservation_estimate", {
+        id: reservationId,
+      }).then(normalizeReservationEstimate).catch(() => null);
+
+      return estimate ? ([reservationId, estimate] as const) : null;
+    }),
+  );
+  const estimatesByReservation: Record<
+    string,
+    NonNullable<ReturnType<typeof normalizeReservationEstimate>>
+  > = {};
+
+  for (const entry of estimateEntries) {
+    if (entry) {
+      estimatesByReservation[entry[0]] = entry[1];
+    }
+  }
+  const estimate = Object.values(estimatesByReservation)[0] ?? null;
 
   return {
     ownerId: String(ownerId),
@@ -1438,6 +1554,7 @@ async function buildReservationDetail(
     ),
     rawReservations: selectedReservations.map(redact),
     estimate,
+    estimatesByReservation,
   };
 }
 
@@ -1453,6 +1570,7 @@ async function buildReservationDetailForClients(
   const ownerIds = new Set<string>();
   const foundIds = new Set<string>();
   let estimate: ReturnType<typeof normalizeReservationEstimate> | null = null;
+  const estimatesByReservation: Record<string, NonNullable<ReturnType<typeof normalizeReservationEstimate>>> = {};
   const clientDebug: Array<{
     city: string;
     code: string;
@@ -1509,6 +1627,7 @@ async function buildReservationDetailForClients(
 
     rawReservations.push(...(result.rawReservations ?? []));
     estimate = estimate ?? result.estimate;
+    Object.assign(estimatesByReservation, result.estimatesByReservation ?? {});
 
     clientDebug.push({
       city: client.city,
@@ -1535,6 +1654,7 @@ async function buildReservationDetailForClients(
     reservations: Array.from(detailByKey.values()),
     rawReservations,
     estimate,
+    estimatesByReservation,
     debug: {
       clients: clientDebug,
       missingIds,
@@ -1577,6 +1697,11 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
   const toDate = new Date(today);
   toDate.setMonth(today.getMonth() + 1);
 
+  const ownerReservationsResponse = await gingrPost(baseUrl, apiKey, "/api/v1/reservations_by_owner", {
+    id: String(ownerId),
+  });
+  const reservationMonthLookups = buildReservationMonthInvoiceLookups(ownerReservationsResponse);
+
   const lookupVariants = [
     {
       label: "completedRecent",
@@ -1609,6 +1734,7 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
         per_page: "100",
       },
     },
+    ...reservationMonthLookups,
   ];
 
   const lookups = await Promise.all(
@@ -1630,9 +1756,46 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
     }),
   );
 
+  const invoiceIds = Array.from(new Set(
+    lookups
+      .flatMap((lookup) => lookup.matchingOwnerInvoices)
+      .map((invoice) => invoice.id)
+      .filter((id): id is string => Boolean(id)),
+  ));
+  const transactionDetails = new Map(
+    await Promise.all(invoiceIds.map(async (invoiceId) => {
+      try {
+        const transaction = await gingrPost(baseUrl, apiKey, "/api/v1/transaction", { id: invoiceId });
+        return [invoiceId, {
+          reservationIds: collectReservationIds(transaction),
+          reservationReferences: collectReservationReferences(transaction),
+          transactionItems: collectTransactionItemSummaries(transaction),
+          transactionFieldKeys: collectObjectKeys(transaction),
+          transactionLookupError: null,
+        }] as const;
+      } catch (error) {
+        return [invoiceId, {
+          reservationIds: [] as string[],
+          reservationReferences: [] as Array<{ key: string; path: string; value: string }>,
+          transactionItems: [] as Array<Record<string, unknown>>,
+          transactionFieldKeys: [] as string[],
+          transactionLookupError: error instanceof Error ? error.message : "Transaction lookup failed.",
+        }] as const;
+      }
+    })),
+  );
+
+  const enrichedLookups = lookups.map((lookup) => ({
+    ...lookup,
+    matchingOwnerInvoices: lookup.matchingOwnerInvoices.map((invoice) => ({
+      ...invoice,
+      ...(invoice.id ? transactionDetails.get(invoice.id) : undefined),
+    })),
+  }));
+
   return {
     ownerId: String(ownerId),
-    lookups,
+    lookups: enrichedLookups,
     note:
       "list_invoices is a global/date-based Gingr endpoint. This diagnostic returns only signed-in owner matches plus non-sensitive counts/field keys.",
   };
@@ -2622,11 +2785,46 @@ function normalizeReservationEstimate(value: unknown) {
   }
 
   const location = readRecord(data, "location");
-  const detailsValue = data.details;
-  const reservationsValue = data.reservations;
+  const reservationsValue = Array.isArray(data.reservations) ? data.reservations : [];
+  const normalizedReservations = reservationsValue.map(normalizeEstimateReservation).filter(Boolean);
+  const details = reservationsValue.flatMap(normalizeReservationServiceCharges);
+  const subtotalAmount =
+    normalizedReservations.reduce(
+      (total, line) =>
+        total +
+        readMoneyAmount(line?.subtotal) +
+        (line?.modifiers ?? []).reduce(
+          (modifierTotal, modifier) => modifierTotal + readMoneyAmount(modifier?.total),
+          0,
+        ),
+      0,
+    ) +
+    details.reduce((total, line) => total + readMoneyAmount(line.total), 0);
+  const taxAmount = reservationsValue.reduce((total, value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return total;
+    }
+
+    return total + readMoneyAmount((value as Record<string, unknown>).tax_amount);
+  }, 0);
+  const totalDueAmount = subtotalAmount + taxAmount;
+  const deposits = Array.isArray(data.deposits) ? data.deposits : [];
+  const appliedDepositAmount = deposits.reduce((total, value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return total;
+    }
+
+    const deposit = value as Record<string, unknown>;
+
+    if (deposit.refunded_at || deposit.forfeited_at || deposit.cancel_stamp) {
+      return total;
+    }
+
+    return total + readMoneyAmount(deposit.paid_amount ?? deposit.deposit_amount);
+  }, 0);
 
   return {
-    details: Array.isArray(detailsValue) ? detailsValue.map(normalizeEstimateDetail).filter(Boolean) : [],
+    details,
     location: location
       ? {
           city: readString(location, "city"),
@@ -2636,10 +2834,119 @@ function normalizeReservationEstimate(value: unknown) {
           phone: readString(location, "phone"),
         }
       : null,
-    reservations: Array.isArray(reservationsValue)
-      ? reservationsValue.map(normalizeEstimateReservation).filter(Boolean)
-      : [],
+    remainingDue: formatMoney(String(Math.max(0, totalDueAmount - appliedDepositAmount))),
+    reservations: normalizedReservations,
+    subtotal: formatMoney(String(subtotalAmount)),
+    tax: formatMoney(String(taxAmount)),
+    totalDue: formatMoney(String(totalDueAmount)),
   };
+}
+
+function normalizeReservationServiceCharges(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+
+  const reservationEstimate = value as Record<string, unknown>;
+  const reservation = readRecord(reservationEstimate, "reservation");
+  const animalName = reservation ? readAnyString(reservation, ["animal_name", "pet_name"]) : null;
+  const services = Array.isArray(reservationEstimate.reservation_services)
+    ? reservationEstimate.reservation_services
+    : [];
+  const groupedServices = new Map<string, { label: string; quantity: number; rate: number }>();
+
+  for (const serviceValue of services) {
+    if (!serviceValue || typeof serviceValue !== "object" || Array.isArray(serviceValue)) {
+      continue;
+    }
+
+    const service = serviceValue as Record<string, unknown>;
+    const type = readAnyString(service, ["type", "name", "label"]) ?? "Service";
+    const rate = readMoneyAmount(service.rate ?? service.price);
+    const key = `${type}|${rate}`;
+    const existing = groupedServices.get(key);
+
+    if (existing) {
+      existing.quantity += 1;
+    } else {
+      groupedServices.set(key, { label: type, quantity: 1, rate });
+    }
+  }
+
+  return Array.from(groupedServices.values()).map((service) => ({
+    label: animalName ? `${service.label} for ${animalName}` : service.label,
+    quantity: String(service.quantity),
+    total: formatMoney(String(service.quantity * service.rate)),
+    unitPrice: formatMoney(String(service.rate)),
+  }));
+}
+
+function readMoneyAmount(value: unknown) {
+  const amount =
+    typeof value === "number"
+      ? value
+      : Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function readDeepCollection(record: Record<string, unknown>, keys: string[]) {
+  const value = findDeepValue(record, keys, (candidate) =>
+    Array.isArray(candidate) || Boolean(candidate && typeof candidate === "object"),
+  );
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>);
+  }
+
+  return [];
+}
+
+function readDeepAnyString(record: Record<string, unknown>, keys: string[]) {
+  const value = findDeepValue(record, keys, (candidate) =>
+    typeof candidate === "string" || typeof candidate === "number",
+  );
+
+  return typeof value === "number" ? String(value) : typeof value === "string" ? value : null;
+}
+
+function findDeepValue(
+  record: Record<string, unknown>,
+  keys: string[],
+  accepts: (value: unknown) => boolean,
+) {
+  const queue: Array<{ depth: number; value: Record<string, unknown> }> = [{ depth: 0, value: record }];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+
+    if (!current) {
+      break;
+    }
+
+    for (const key of keys) {
+      const candidate = current.value[key];
+
+      if (accepts(candidate)) {
+        return candidate;
+      }
+    }
+
+    if (current.depth >= 4) {
+      continue;
+    }
+
+    for (const candidate of Object.values(current.value)) {
+      if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+        queue.push({ depth: current.depth + 1, value: candidate as Record<string, unknown> });
+      }
+    }
+  }
+
+  return null;
 }
 
 function normalizeEstimateDetail(value: unknown) {
@@ -2650,9 +2957,10 @@ function normalizeEstimateDetail(value: unknown) {
   const detail = value as Record<string, unknown>;
 
   return {
-    label: readAnyString(detail, ["name", "label", "description", "item_name"]),
-    quantity: readAnyString(detail, ["quantity", "qty"]),
-    total: formatMoney(readAnyString(detail, ["total", "amount", "price"])),
+    label: readDeepAnyString(detail, ["name", "label", "description", "item_name"]),
+    quantity: readDeepAnyString(detail, ["quantity", "qty"]),
+    total: formatMoney(readDeepAnyString(detail, ["total", "amount", "line_total", "lineTotal", "price"])),
+    unitPrice: formatMoney(readDeepAnyString(detail, ["unit_price", "unitPrice", "price_each", "rate"])),
   };
 }
 
@@ -2662,10 +2970,43 @@ function normalizeEstimateReservation(value: unknown) {
   }
 
   const reservation = value as Record<string, unknown>;
+  const modifiersValue = reservation.modifiers;
+  const modifiers = modifiersValue && typeof modifiersValue === "object"
+    ? (Array.isArray(modifiersValue)
+      ? modifiersValue
+      : Object.values(modifiersValue as Record<string, unknown>))
+        .map(normalizeEstimateModifier)
+        .filter(Boolean)
+    : [];
+
+  const quantity = readAnyString(reservation, ["quantity", "qty", "units"]);
+  const unitPrice = readAnyString(reservation, ["base_rate", "unit_price", "unitPrice", "rate"]);
+  const baseCharge = readMoneyAmount(quantity) * readMoneyAmount(unitPrice);
 
   return {
-    label: readAnyString(reservation, ["name", "type", "reservation_type"]),
-    subtotal: formatMoney(readAnyString(reservation, ["subtotal", "total", "amount"])),
+    label: readDeepAnyString(reservation, ["name", "type", "reservation_type"]),
+    modifiers,
+    quantity,
+    subtotal: formatMoney(String(baseCharge)),
+    unitPrice: formatMoney(unitPrice),
+  };
+}
+
+function normalizeEstimateModifier(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const modifier = value as Record<string, unknown>;
+  const quantity = readAnyString(modifier, ["qty", "quantity"]) ?? "1";
+  const unitPrice = readAnyString(modifier, ["cost", "rate", "price"]);
+  const total = readMoneyAmount(unitPrice) * readMoneyAmount(quantity);
+
+  return {
+    label: readAnyString(modifier, ["label", "name", "type"]),
+    quantity,
+    total: formatMoney(String(total)),
+    unitPrice: formatMoney(unitPrice),
   };
 }
 
@@ -2890,10 +3231,14 @@ async function findInvoicesForOwner(
   let totalReturned = 0;
   let sampleFieldKeys: string[] = [];
 
-  for (let page = 1; page <= maxPages; page += 1) {
+  const perPage = Number(baseParams.per_page);
+  const pageSize = Number.isFinite(perPage) && perPage > 0 ? perPage : 100;
+
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+    const pageOffset = 1 + pageIndex * pageSize;
     const response = await gingrGet(baseUrl, apiKey, "/api/v1/list_invoices", {
       ...baseParams,
-      page: String(page),
+      page: String(pageOffset),
     });
     const invoices = unwrapGingrArray(response);
 
@@ -2901,7 +3246,7 @@ async function findInvoicesForOwner(
       break;
     }
 
-    pagesScanned = page;
+    pagesScanned = pageIndex + 1;
     totalReturned += invoices.length;
     sampleFieldKeys = sampleFieldKeys.length > 0 ? sampleFieldKeys : readObjectKeys(invoices[0]);
     matchingInvoices.push(
@@ -2911,8 +3256,6 @@ async function findInvoicesForOwner(
     if (matchingInvoices.length >= 20) {
       break;
     }
-
-    const perPage = Number(baseParams.per_page);
 
     if (Number.isFinite(perPage) && invoices.length < perPage) {
       break;
@@ -2966,9 +3309,113 @@ function normalizeInvoiceSummary(value: unknown) {
     ownerId: readAnyString(invoice, ["owner_id", "o_id", "customer_id", "client_id", "user_id"]),
     reservationId: readAnyString(invoice, ["reservation_id", "r_id"]),
     status: readAnyString(invoice, ["status", "invoice_status"]),
-    date: readAnyDate(invoice, ["date", "invoice_date", "created_at", "created", "created_date"]),
+    date: readAnyDate(invoice, ["date", "invoice_date", "create_stamp", "created_at", "created", "created_date"]),
     total: readAnyString(invoice, ["total", "invoice_total", "amount", "balance"]),
   };
+}
+
+function buildReservationMonthInvoiceLookups(value: unknown) {
+  const months = new Set<string>();
+  for (const reservation of unwrapGingrArray(value)) {
+    if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) continue;
+    const record = reservation as Record<string, unknown>;
+    for (const date of [
+      readAnyDate(record, ["created_at", "create_stamp", "created_date"]),
+      readAnyDate(record, ["start_date", "checkin_date", "check_in_date"]),
+      readAnyDate(record, ["end_date", "checkout_date", "check_out_date"]),
+    ]) {
+      if (date) months.add(date.slice(0, 7));
+    }
+  }
+
+  return Array.from(months)
+    .sort()
+    .reverse()
+    .slice(0, 12)
+    .map((month) => {
+      const [year, monthNumber] = month.split("-").map(Number);
+      const fromDate = new Date(year, monthNumber - 1, 1);
+      const toDate = new Date(year, monthNumber, 0);
+      return {
+        label: `completedReservationMonth-${month}`,
+        params: {
+          complete: "true",
+          closed_only: "false",
+          from_date: formatIsoDateForGingr(fromDate),
+          to_date: formatIsoDateForGingr(toDate),
+          page: "1",
+          per_page: "100",
+        },
+      };
+    });
+}
+
+function collectReservationIds(value: unknown, depth = 0): string[] {
+  if (depth > 8 || !value || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.flatMap((item) => collectReservationIds(item, depth + 1))));
+  }
+
+  const record = value as Record<string, unknown>;
+  const directIds = ["reservation_id", "r_id", "booking_id"]
+    .map((key) => readString(record, key))
+    .filter((id): id is string => Boolean(id));
+  const nestedIds = Object.values(record).flatMap((item) => collectReservationIds(item, depth + 1));
+  return Array.from(new Set([...directIds, ...nestedIds]));
+}
+
+function collectObjectKeys(value: unknown, depth = 0): string[] {
+  if (depth > 5 || !value || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.flatMap((item) => collectObjectKeys(item, depth + 1)))).slice(0, 80);
+  }
+
+  const record = value as Record<string, unknown>;
+  return Array.from(new Set([
+    ...Object.keys(record),
+    ...Object.values(record).flatMap((item) => collectObjectKeys(item, depth + 1)),
+  ])).slice(0, 80);
+}
+
+function collectReservationReferences(value: unknown, path = "root", depth = 0): Array<{ key: string; path: string; value: string }> {
+  if (depth > 8 || !value || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => collectReservationReferences(item, `${path}[${index}]`, depth + 1)).slice(0, 40);
+  }
+
+  const references: Array<{ key: string; path: string; value: string }> = [];
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (/reservation|booking|\br_id\b/i.test(key) && (typeof nestedValue === "string" || typeof nestedValue === "number")) {
+      references.push({ key, path, value: String(nestedValue).slice(0, 160) });
+    }
+    references.push(...collectReservationReferences(nestedValue, `${path}.${key}`, depth + 1));
+    if (references.length >= 40) break;
+  }
+  return references.slice(0, 40);
+}
+
+function collectTransactionItemSummaries(value: unknown, path = "root", depth = 0): Array<Record<string, unknown>> {
+  if (depth > 8 || !value || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const record = item as Record<string, unknown>;
+      const summary = {
+        amount: readAnyString(record, ["total", "amount", "price", "subtotal", "item_total"]),
+        description: readAnyString(record, ["description", "name", "item_name", "label", "title", "type"]),
+        fieldKeys: readObjectKeys(record),
+        id: readAnyString(record, ["id", "item_id", "transaction_item_id"]),
+        path: `${path}[${index}]`,
+        quantity: readAnyString(record, ["quantity", "qty", "units"]),
+        reservationId: readAnyString(record, ["reservation_id", "r_id", "booking_id"]),
+      };
+      return [summary, ...collectTransactionItemSummaries(record, `${path}[${index}]`, depth + 1)];
+    }).slice(0, 60);
+  }
+
+  return Object.entries(value as Record<string, unknown>)
+    .flatMap(([key, nestedValue]) => collectTransactionItemSummaries(nestedValue, `${path}.${key}`, depth + 1))
+    .slice(0, 60);
 }
 
 function normalizeReportCardFileSummary(

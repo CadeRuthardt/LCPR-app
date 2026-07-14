@@ -103,6 +103,7 @@ export type ReservationEstimate = {
   details: Array<{
     label: string | null;
     quantity: string | null;
+    unitPrice: string | null;
     total: string | null;
   }>;
   location: {
@@ -114,8 +115,47 @@ export type ReservationEstimate = {
   } | null;
   reservations: Array<{
     label: string | null;
+    modifiers: Array<{
+      label: string | null;
+      quantity: string | null;
+      total: string | null;
+      unitPrice: string | null;
+    }>;
+    quantity: string | null;
     subtotal: string | null;
+    unitPrice: string | null;
   }>;
+  remainingDue: string | null;
+  subtotal: string | null;
+  tax: string | null;
+  totalDue: string | null;
+};
+
+export type ReservationStayDetail = {
+  animalNames: string[];
+  baseRate: string | null;
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  confirmedAt: string | null;
+  createdAt: string | null;
+  createdBy: string | null;
+  dateRange: string;
+  endDate: string | null;
+  endDateTimeLabel: string | null;
+  finalRate: string | null;
+  groomingNotes: string | null;
+  id: string;
+  location: string | null;
+  nights: string | null;
+  notes: string | null;
+  petDetails: ReservationDetailPet[];
+  reservationSummary: string | null;
+  reservationType: string | null;
+  services: string | null;
+  startDate: string | null;
+  startDateTimeLabel: string | null;
+  status: string;
+  unitsOfTime: string | null;
 };
 
 export type ClientReservationDetail = {
@@ -132,11 +172,13 @@ export type ClientReservationDetail = {
   endDate: string | null;
   endDateTimeLabel: string | null;
   estimate: ReservationEstimate | null;
+  estimatesByReservation: Record<string, ReservationEstimate>;
   feedingAmount: string | null;
   feedingNotes: string | null;
   feedingTime: string | null;
   finalRate: string | null;
   groomingNotes: string | null;
+  groupedReservations: ReservationStayDetail[];
   id: string;
   location: string | null;
   nights: string | null;

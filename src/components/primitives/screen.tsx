@@ -12,7 +12,7 @@ import type { PropsWithChildren } from "react";
 import type { NativeScrollEvent, NativeSyntheticEvent, StyleProp, ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { colors, spacing } from "../../theme";
+import { colors, layout } from "../../theme";
 
 type ScreenProps = PropsWithChildren<{
   backgroundColor?: string;
@@ -26,7 +26,7 @@ type ScreenProps = PropsWithChildren<{
 }>;
 
 export function Screen({
-  backgroundColor = colors.ivory,
+  backgroundColor = colors.background,
   children,
   clampBottomBounce = false,
   contentStyle,
@@ -111,10 +111,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: spacing.xl,
-    paddingBottom: 116,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm,
+    alignSelf: "center",
+    gap: layout.sectionGap,
+    maxWidth: layout.maxContentWidth,
+    paddingBottom: layout.bottomContentPadding,
+    paddingHorizontal: layout.screenPaddingHorizontal,
+    paddingTop: layout.screenPaddingTop,
+    width: "100%",
   },
   staticContent: {
     flex: 1,

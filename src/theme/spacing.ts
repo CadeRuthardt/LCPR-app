@@ -1,4 +1,19 @@
 export const spacing = {
+  2: 2,
+  4: 4,
+  6: 6,
+  8: 8,
+  10: 10,
+  12: 12,
+  14: 14,
+  16: 16,
+  18: 18,
+  20: 20,
+  22: 22,
+  24: 24,
+  28: 28,
+  32: 32,
+  40: 40,
   xxs: 4,
   xs: 8,
   sm: 12,
@@ -8,4 +23,17 @@ export const spacing = {
   xxl: 32,
   xxxl: 40,
   display: 56,
+} as const;
+
+export const layout = {
+  screenPaddingHorizontal: 20,
+  screenPaddingTop: 18,
+  sectionGap: 24,
+  cardGap: 12,
+  rowGap: 10,
+  cardPadding: 18,
+  compactCardPadding: 14,
+  bottomContentPadding: 120,
+  tabBarHeight: 84,
+  maxContentWidth: 520,
 } as const;

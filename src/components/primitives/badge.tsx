@@ -10,19 +10,19 @@ type BadgeProps = {
   tone?: BadgeTone;
 };
 
-const badgeStyles: Record<BadgeTone, { backgroundColor: string }> = {
-  accent: { backgroundColor: colors.champagne },
-  calm: { backgroundColor: colors.sage },
-  attention: { backgroundColor: colors.blush },
-  success: { backgroundColor: colors.parchment },
-  danger: { backgroundColor: colors.statusRedSoft },
-  info: { backgroundColor: colors.statusBlueSoft },
+const badgeStyles: Record<BadgeTone, { backgroundColor: string; color: string }> = {
+  accent: { backgroundColor: colors.champagne, color: colors.burgundy },
+  calm: { backgroundColor: colors.sage, color: colors.burgundy },
+  attention: { backgroundColor: colors.blush, color: colors.burgundy },
+  success: { backgroundColor: colors.statusGreenSoft, color: colors.statusGreen },
+  danger: { backgroundColor: colors.statusRedSoft, color: colors.statusRed },
+  info: { backgroundColor: colors.statusBlueSoft, color: colors.statusBlue },
 };
 
 export function Badge({ label, tone = "accent" }: BadgeProps) {
   return (
     <View style={[styles.badge, badgeStyles[tone]]}>
-      <Text variant="label" tone="brand" style={styles.label}>
+      <Text variant="label" style={[styles.label, { color: badgeStyles[tone].color }]}>
         {label}
       </Text>
     </View>

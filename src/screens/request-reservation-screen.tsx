@@ -1,11 +1,12 @@
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as React from "react";
 import {
-  type DimensionValue,
   Image,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,8 +14,8 @@ import {
   View,
 } from "react-native";
 
+import { AppScreen, BrandHeader } from "@/components/app";
 import {
-  BackChevronButton,
   Button,
   Card,
   Icon,
@@ -22,18 +23,24 @@ import {
   Text,
   TextField,
 } from "@/components/primitives";
-import { createReservationRequest, getCurrentClientPetsForApp } from "@/services/client-data";
+import { resortImages } from "@/data/mock-data";
 import {
+  createReservationRequest,
+  getCachedClientDashboardData,
+  getCurrentClientPetsForApp,
+} from "@/services/client-data";
+import {
+  getCachedGingrReservationRequestCatalog,
   getGingrReservationRequestCatalog,
   type GingrReservationRequestCatalog,
 } from "@/services/gingr";
-import { colors, radius, spacing } from "@/theme";
+import { colors, fonts, layout, radii, radius, spacing, typography } from "@/theme";
 import type { Pet } from "@/types/app";
+import { hasCurrentVaccinations } from "@/utils/vaccinations";
 import type { ReservationRequest } from "@/types/database";
 import { goBackOrReplace, resolveFallbackRoute } from "@/utils/navigation";
 
 const steps = ["Pets", "Location", "Type", "Dates", "Experience", "Details"] as const;
-const locationPlaceholder = "Choose location";
 const fallbackLocationOptions = ["Amarillo", "Wichita Falls", "New Braunfels"];
 const fallbackReservationTypeOptions = ["Boarding", "Daycare", "Spa"];
 const dogAmenityPackages = ["Classic", "Premium", "Platinum VIP"];
@@ -69,8 +76,13 @@ export function RequestReservationScreen() {
     () => new Set((params.petIds ?? "").split(",").filter(Boolean)),
     [params.petIds],
   );
+  const cachedCatalog = getCachedGingrReservationRequestCatalog() ?? null;
+  const cachedPets = getCachedClientDashboardData()?.pets ?? [];
+  const cachedLocationOptions = cachedCatalog?.locations.map((item) => item.city) ?? [];
+  const cachedReservationTypeOptions = cachedCatalog
+    ? normalizeReservationTypeOptions(cachedCatalog.reservationTypes)
+    : [];
   const [activeStepIndex, setActiveStepIndex] = React.useState(0);
-  const [activeLocationDropdown, setActiveLocationDropdown] = React.useState(false);
   const [activeTimeField, setActiveTimeField] = React.useState<"start" | "end" | null>(null);
   const [authorizedPickup, setAuthorizedPickup] = React.useState("");
   const [calendarMonth, setCalendarMonth] = React.useState(startOfMonth(new Date()));
@@ -82,19 +94,25 @@ export function RequestReservationScreen() {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [exitConfirmVisible, setExitConfirmVisible] = React.useState(false);
   const [requestCatalog, setRequestCatalog] =
-    React.useState<GingrReservationRequestCatalog | null>(null);
-  const [locationOptions, setLocationOptions] = React.useState(fallbackLocationOptions);
+    React.useState<GingrReservationRequestCatalog | null>(cachedCatalog);
+  const [locationOptions, setLocationOptions] = React.useState(
+    cachedLocationOptions.length > 0 ? cachedLocationOptions : fallbackLocationOptions,
+  );
   const [location, setLocation] = React.useState("");
   const [amenityPackage, setAmenityPackage] = React.useState(dogAmenityPackages[0]);
-  const [isLoadingCatalog, setIsLoadingCatalog] = React.useState(true);
-  const [isLoadingPets, setIsLoadingPets] = React.useState(true);
+  const [isLoadingCatalog, setIsLoadingCatalog] = React.useState(!cachedCatalog);
+  const [isLoadingPets, setIsLoadingPets] = React.useState(cachedPets.length === 0);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [notes, setNotes] = React.useState("");
-  const [pets, setPets] = React.useState<Pet[]>([]);
+  const [pets, setPets] = React.useState<Pet[]>(cachedPets);
   const [reservationTypeOptions, setReservationTypeOptions] = React.useState(
-    fallbackReservationTypeOptions,
+    cachedReservationTypeOptions.length > 0
+      ? cachedReservationTypeOptions
+      : fallbackReservationTypeOptions,
   );
-  const [reservationType, setReservationType] = React.useState(fallbackReservationTypeOptions[0]);
+  const [reservationType, setReservationType] = React.useState(
+    cachedReservationTypeOptions[0] ?? fallbackReservationTypeOptions[0],
+  );
   const [selectedSpaService, setSelectedSpaService] = React.useState("");
   const [selectedSpaUpgrades, setSelectedSpaUpgrades] = React.useState<Set<string>>(new Set());
   const [selectedPetIds, setSelectedPetIds] = React.useState<Set<string>>(initialPetIds);
@@ -237,8 +255,6 @@ export function RequestReservationScreen() {
     hasValidTimeSelection &&
     experienceComplete &&
     !isSubmitting;
-  const currentStepNumber = activeStepIndex + 1;
-  const progressPercent = `${(currentStepNumber / steps.length) * 100}%` as DimensionValue;
   const isSingleDayRequest = !isBoardingRequest;
 
   React.useEffect(() => {
@@ -330,6 +346,15 @@ export function RequestReservationScreen() {
     setSelectedPetIds((current) => toggleSetValue(current, petId));
   }
 
+  function selectLocation(option: string) {
+    setLocation(option);
+    setStartDate("");
+    setEndDate("");
+    setStartTime("");
+    setEndTime("");
+    setActiveTimeField(null);
+  }
+
   function toggleSpaService(service: string) {
     setSelectedSpaService((current) => (current === service ? "" : service));
   }
@@ -380,13 +405,11 @@ export function RequestReservationScreen() {
     }
 
     setActiveTimeField(null);
-    setActiveLocationDropdown(false);
     setActiveStepIndex((current) => Math.min(current + 1, steps.length - 1));
   }
 
   function goToPreviousStep() {
     setActiveTimeField(null);
-    setActiveLocationDropdown(false);
     setActiveStepIndex((current) => Math.max(current - 1, 0));
   }
 
@@ -396,13 +419,11 @@ export function RequestReservationScreen() {
     }
 
     setActiveTimeField(null);
-    setActiveLocationDropdown(false);
     setActiveStepIndex(stepIndex);
   }
 
   function resetReservationFlow() {
     setActiveStepIndex(0);
-    setActiveLocationDropdown(false);
     setActiveTimeField(null);
     setAuthorizedPickup("");
     setCalendarMonth(startOfMonth(new Date()));
@@ -491,14 +512,10 @@ export function RequestReservationScreen() {
 
   if (createdRequest) {
     return (
-      <Screen contentStyle={styles.content}>
-        <View style={styles.header}>
-          <BackChevronButton onPress={() => goBackOrReplace(fallbackRoute)} />
-          <Text variant="title" style={styles.headerTitle}>
-            Request Submitted
-          </Text>
-          <View style={styles.headerSpacer} />
-        </View>
+      <AppScreen
+        subtitle="Reception will review your request and confirm availability."
+        title="Request Submitted"
+      >
         <Card variant="elevated" style={styles.confirmationCard}>
           <View style={styles.confirmationIcon}>
             <Icon color={colors.goldenrod} name="check" size={28} />
@@ -519,48 +536,29 @@ export function RequestReservationScreen() {
             }}
           />
         </Card>
-      </Screen>
+      </AppScreen>
     );
   }
 
   return (
-    <Screen scroll={false} contentStyle={styles.flowRoot}>
-      <View style={[styles.stickyHeader, isCompactLayout && styles.stickyHeaderCompact]}>
-        <View style={styles.header}>
+    <View style={styles.root}>
+      <BrandHeader
+        compact
+        leftAction={
           <Pressable
-            accessibilityLabel="Exit reservation request"
+            accessibilityLabel={activeStepIndex > 0 ? "Previous reservation step" : "Back to reservations"}
             accessibilityRole="button"
-            onPress={handleExitPress}
-            style={({ pressed }) => [styles.exitButton, pressed && styles.dateFieldPressed]}
+            onPress={activeStepIndex > 0 ? goToPreviousStep : handleExitPress}
+            style={({ pressed }) => [styles.flowBackButton, pressed && styles.dateFieldPressed]}
           >
-            <Icon color={colors.blackCherry} name="x" size={18} />
+            <Icon color={colors.burgundy} name="chevron-left" size={14} />
+            <Text style={styles.flowBackText}>Back</Text>
           </Pressable>
-          <Text
-            variant="title"
-            style={[styles.headerTitle, isCompactLayout && styles.headerTitleCompact]}
-          >
-            New Reservation Request
-          </Text>
-          <View style={styles.headerSpacer} />
-        </View>
-
-        <View style={styles.progressSummary}>
-          <View style={styles.progressCopy}>
-            <Text variant="caption" tone="muted">
-              Step {currentStepNumber} of {steps.length}
-            </Text>
-            <Text variant="title">{activeStep}</Text>
-          </View>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: progressPercent }]} />
-          </View>
-        </View>
-
-        <View style={styles.divider} />
-      </View>
-
+        }
+      />
+      <Screen scroll={false} contentStyle={styles.flowRoot} topSafeArea={false}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
         style={styles.flowBody}
       >
         <ScrollView
@@ -578,7 +576,7 @@ export function RequestReservationScreen() {
           {activeStep === "Pets" ? (
         <>
           <View style={styles.sectionHeader}>
-            <Text variant="title">Which pet(s) is this for?</Text>
+            <Text style={styles.flowSectionTitle}>Which pets are coming?</Text>
             <Text variant="caption" tone="secondary">
               Select all that apply.
             </Text>
@@ -598,14 +596,18 @@ export function RequestReservationScreen() {
                 >
                   <Card
                     variant="elevated"
-                    style={[styles.petOption, isCompactLayout && styles.petOptionCompact]}
+                    style={[
+                      styles.petOption,
+                      isSelected && styles.petOptionSelected,
+                      isCompactLayout && styles.petOptionCompact,
+                    ]}
                   >
                     <Image
                       source={{ uri: pet.imageUrl }}
                       style={[styles.petAvatar, isCompactLayout && styles.petAvatarCompact]}
                     />
                     <View style={styles.petCopy}>
-                      <Text variant="title">{pet.name}</Text>
+                      <Text style={typography.cardTitle}>{pet.name}</Text>
                       <Text variant="caption" tone="secondary">
                         {pet.breed}
                       </Text>
@@ -636,30 +638,38 @@ export function RequestReservationScreen() {
       {activeStep === "Location" ? (
         <View style={styles.formGroup}>
           <View style={styles.sectionHeader}>
-            <Text variant="title">Which location?</Text>
+            <Text style={styles.flowSectionTitle}>Choose a location</Text>
             <Text variant="caption" tone="secondary">
               {isLoadingCatalog
                 ? "Loading Le Chateau request options from Gingr..."
                 : "Choose where this reservation should be requested."}
             </Text>
           </View>
-          <DropdownField
-            active={activeLocationDropdown}
-            label="Location"
-            onPress={() => setActiveLocationDropdown((current) => !current)}
-            onSelect={(option) => {
-              setLocation(option);
-              setActiveLocationDropdown(false);
-              setStartDate("");
-              setEndDate("");
-              setStartTime("");
-              setEndTime("");
-              setActiveTimeField(null);
-            }}
-            options={locationOptions}
-            placeholder={locationPlaceholder}
-            value={location}
-          />
+          <View style={styles.locationOptionList}>
+            {locationOptions.map((option) => {
+              const isSelected = location === option;
+
+              return (
+                <Pressable
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: isSelected }}
+                  key={option}
+                  onPress={() => selectLocation(option)}
+                >
+                  <Card style={[styles.locationOption, isSelected && styles.locationOptionSelected]}>
+                    <Image source={{ uri: getReservationLocationImage(option) }} style={styles.locationOptionImage} />
+                    <View style={styles.locationOptionCopy}>
+                      <Text style={styles.locationOptionName}>{option}</Text>
+                      <Text style={typography.caption}>Le Chateau Pet Resort</Text>
+                    </View>
+                    <View style={[styles.locationRadio, isSelected && styles.locationRadioSelected]}>
+                      {isSelected ? <Icon color={colors.white} name="check" size={12} /> : null}
+                    </View>
+                  </Card>
+                </Pressable>
+              );
+            })}
+          </View>
           {petsMissingCurrentVaccinations.length > 0 ? (
             <Card style={styles.guidanceCard}>
               <Text variant="title">Vaccinations need attention</Text>
@@ -688,7 +698,7 @@ export function RequestReservationScreen() {
       {activeStep === "Type" ? (
         <View style={styles.formGroup}>
           <View style={styles.sectionHeader}>
-            <Text variant="title">What type of visit?</Text>
+            <Text style={styles.flowSectionTitle}>What type of stay?</Text>
             <Text variant="caption" tone="secondary">
               Select the primary service for this request.
             </Text>
@@ -710,7 +720,7 @@ export function RequestReservationScreen() {
       {activeStep === "Dates" ? (
         <View style={styles.formGroup}>
           <View style={styles.sectionHeader}>
-            <Text variant="title">Choose dates and times</Text>
+            <Text style={styles.flowSectionTitle}>Select stay dates</Text>
             <Text variant="caption" tone="secondary">
               {isSingleDayRequest
                 ? "Choose the visit date, then select drop-off and pickup times."
@@ -741,6 +751,7 @@ export function RequestReservationScreen() {
             active={activeTimeField === "start"}
             disabled={!canSelectTimes}
             label="Drop-off time"
+            onClose={() => setActiveTimeField(null)}
             onSelect={(value) => handleTimeSelect("start", value)}
             onPress={() => {
               if (canSelectTimes) {
@@ -754,6 +765,7 @@ export function RequestReservationScreen() {
             active={activeTimeField === "end"}
             disabled={!canSelectTimes}
             label="Pickup time"
+            onClose={() => setActiveTimeField(null)}
             onSelect={(value) => handleTimeSelect("end", value)}
             onPress={() => {
               if (canSelectTimes) {
@@ -782,7 +794,7 @@ export function RequestReservationScreen() {
             <>
               <View style={styles.formGroup}>
                 <View style={styles.sectionHeader}>
-                  <Text variant="title">Amenity package</Text>
+                  <Text style={styles.flowSectionTitle}>Amenity package</Text>
                   <Text variant="caption" tone="secondary">
                     Select the boarding package and suite preferences.
                   </Text>
@@ -801,7 +813,7 @@ export function RequestReservationScreen() {
               </View>
 
               <View style={styles.formGroup}>
-                <Text variant="title">Preferred suite size</Text>
+                <Text style={styles.flowSectionTitle}>Preferred suite size</Text>
                 <View style={styles.optionGrid}>
                   {availableSuiteSizes.map((option) => (
                     <Button
@@ -820,7 +832,7 @@ export function RequestReservationScreen() {
           {shouldShowCatBoardingPreferences ? (
             <View style={styles.formGroup}>
               <View style={styles.sectionHeader}>
-                <Text variant="title">Cat accommodation</Text>
+                <Text style={styles.flowSectionTitle}>Cat accommodation</Text>
                 <Text variant="caption" tone="secondary">
                   Choose the preferred cat accommodation for this location.
                 </Text>
@@ -842,7 +854,7 @@ export function RequestReservationScreen() {
           {shouldShowEnrichment ? (
             <View style={styles.formGroup}>
               <View style={styles.sectionHeader}>
-                <Text variant="title">Enrichment</Text>
+                <Text style={styles.flowSectionTitle}>Enrichment</Text>
                 <Text variant="caption" tone="secondary">
                   Add extra play and activity time if you would like.
                 </Text>
@@ -880,7 +892,7 @@ export function RequestReservationScreen() {
           {shouldShowSpaOptions ? (
             <>
               <View style={styles.formGroup}>
-                <Text variant="title">Spa services</Text>
+                <Text style={styles.flowSectionTitle}>Spa services</Text>
                 <View style={styles.optionGrid}>
                   {spaServices.map((service) => (
                     <Button
@@ -895,7 +907,7 @@ export function RequestReservationScreen() {
               </View>
 
               <View style={styles.formGroup}>
-                <Text variant="title">Spa upgrades</Text>
+                <Text style={styles.flowSectionTitle}>Spa upgrades</Text>
                 <View style={styles.optionGrid}>
                   {spaUpgrades.map((upgrade) => (
                     <Button
@@ -917,7 +929,7 @@ export function RequestReservationScreen() {
         <>
           <View style={styles.formGroup}>
             <View style={styles.sectionHeader}>
-              <Text variant="title">Any final details?</Text>
+              <Text style={styles.flowSectionTitle}>Review your request</Text>
               <Text variant="caption" tone="secondary">
                 Add notes for reception before submitting.
               </Text>
@@ -953,35 +965,41 @@ export function RequestReservationScreen() {
 
       {errorMessage ? <Text tone="secondary">{errorMessage}</Text> : null}
 
+        </ScrollView>
+      </KeyboardAvoidingView>
+
       <View style={[styles.footerActions, isCompactLayout && styles.footerActionsCompact]}>
-        {activeStepIndex > 0 ? (
-          <BackChevronButton accessibilityLabel="Previous step" onPress={goToPreviousStep} />
-        ) : null}
+        <Button
+          onPress={handleExitPress}
+          style={styles.cancelFooterButton}
+          title="Cancel"
+          variant="ghost"
+        />
         {activeStep === "Details" ? (
           <Button
             disabled={!canSubmit}
             icon="calendar"
             onPress={handleSubmit}
+            style={styles.footerButton}
             title={isSubmitting ? "Submitting..." : "Submit Request"}
           />
         ) : (
           <Button
             disabled={!canAdvanceFromStep(activeStep)}
-            icon="chevron-right"
             onPress={goToNextStep}
-            title="Next"
+            style={styles.footerButton}
+            title="Continue"
           />
         )}
       </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
 
       <ReservationExitModal
         visible={exitConfirmVisible}
         onCancel={() => setExitConfirmVisible(false)}
         onConfirm={exitReservationFlow}
       />
-    </Screen>
+      </Screen>
+    </View>
   );
 }
 
@@ -989,19 +1007,10 @@ type TimeFieldProps = {
   active: boolean;
   disabled?: boolean;
   label: string;
+  onClose: () => void;
   onSelect: (value: string) => void;
   onPress: () => void;
   options: readonly string[];
-  value: string;
-};
-
-type DropdownFieldProps = {
-  active: boolean;
-  label: string;
-  onPress: () => void;
-  onSelect: (value: string) => void;
-  options: readonly string[];
-  placeholder?: string;
   value: string;
 };
 
@@ -1124,129 +1133,104 @@ function TimeField({
   active,
   disabled = false,
   label,
+  onClose,
   onPress,
   onSelect,
   options,
   value,
 }: TimeFieldProps) {
+  const [draftValue, setDraftValue] = React.useState(value || options[0] || "07:00");
+
+  React.useEffect(() => {
+    if (active) {
+      setDraftValue(value || options[0] || "07:00");
+    }
+  }, [active, options, value]);
+
+  const minimumTime = timeValueToDate(options[0] || "07:00");
+  const maximumTime = timeValueToDate(options[options.length - 1] || "19:00");
+
+  function handlePickerChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    if (event.type === "dismissed") {
+      onClose();
+      return;
+    }
+
+    if (selectedDate) {
+      setDraftValue(dateToTimeValue(selectedDate));
+    }
+  }
+
   return (
     <View style={styles.datePickerWrap}>
       <Pressable
-        accessibilityRole="button"
         accessibilityLabel={value ? `${label}: ${formatDisplayTime(value)}` : `Choose ${label}`}
+        accessibilityRole="button"
         accessibilityState={{ disabled }}
         disabled={disabled}
         onPress={onPress}
         style={({ pressed }) => [
           styles.dateField,
-          active && styles.dateFieldDropdownOpen,
+          active && styles.dateFieldActive,
           disabled && styles.dateFieldDisabled,
           pressed && styles.dateFieldPressed,
         ]}
       >
         <View style={styles.dateCopy}>
-          <Text variant="caption" tone="muted">
-            {label}
-          </Text>
+          <Text variant="caption" tone="muted">{label}</Text>
           <Text variant="body" tone={value ? "primary" : "muted"}>
             {value ? formatDisplayTime(value) : disabled ? "Select dates first" : "Choose time"}
           </Text>
         </View>
-        <Icon color={colors.blackCherry} name="clock" size={20} />
-      </Pressable>
-
-      {active ? (
-        <ScrollView
-          nestedScrollEnabled
-          showsVerticalScrollIndicator={false}
-          style={styles.timeScroll}
-          contentContainerStyle={styles.timeOptions}
-        >
-          {options.length > 0 ? (
-            options.map((option) => (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: value === option }}
-                key={option}
-                onPress={() => onSelect(option)}
-                style={({ pressed }) => [
-                  styles.timeOption,
-                  value === option && styles.timeOptionActive,
-                  pressed && styles.dateFieldPressed,
-                ]}
-              >
-                <Text variant="caption" tone={value === option ? "inverse" : "brand"}>
-                  {formatDisplayTime(option)}
-                </Text>
-              </Pressable>
-            ))
-          ) : (
-            <View style={styles.timeEmpty}>
-              <Text variant="caption" tone="muted">
-                No available times for this date.
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-      ) : null}
-    </View>
-  );
-}
-
-function DropdownField({
-  active,
-  label,
-  onPress,
-  onSelect,
-  options,
-  placeholder = "Choose",
-  value,
-}: DropdownFieldProps) {
-  const displayValue = value || placeholder;
-
-  return (
-    <View style={styles.datePickerWrap}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${label}: ${displayValue}`}
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.dateField,
-          active && styles.dateFieldDropdownOpen,
-          pressed && styles.dateFieldPressed,
-        ]}
-      >
-        <View style={styles.dateCopy}>
-          <Text variant="caption" tone="muted">
-            {label}
-          </Text>
-          <Text variant="body" tone={value ? "primary" : "muted"}>
-            {displayValue}
-          </Text>
+        <View style={styles.timeFieldAccessory}>
+          <Icon color={colors.blackCherry} name="clock" size={19} />
+          <Icon color={colors.blackCherry} name="chevron-down" size={17} />
         </View>
-        <Icon color={colors.blackCherry} name="chevron-right" size={16} />
       </Pressable>
 
       {active ? (
-        <View style={styles.dropdownMenu}>
-          {options.map((option) => (
+        <Modal animationType="slide" transparent visible onRequestClose={onClose}>
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.timePickerBackdrop}>
             <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: value === option }}
-              key={option}
-              onPress={() => onSelect(option)}
-              style={({ pressed }) => [
-                styles.dropdownOption,
-                value === option && styles.dropdownOptionActive,
-                pressed && styles.dateFieldPressed,
-              ]}
+              accessibilityRole="none"
+              onPress={(event) => event.stopPropagation()}
+              style={styles.timePickerSheet}
             >
-              <Text variant="caption" tone={value === option ? "inverse" : "brand"}>
-                {option}
-              </Text>
+              <View style={styles.timePickerHeader}>
+                <Pressable accessibilityRole="button" hitSlop={8} onPress={onClose}>
+                  <Text style={styles.timePickerCancel}>Cancel</Text>
+                </Pressable>
+                <View style={styles.timePickerTitleCopy}>
+                  <Text style={styles.timePickerTitle}>{label}</Text>
+                  <Text style={typography.caption}>Available in 15-minute increments</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={options.length === 0}
+                  hitSlop={8}
+                  onPress={() => onSelect(draftValue)}
+                >
+                  <Text style={styles.timePickerDone}>Done</Text>
+                </Pressable>
+              </View>
+              {options.length > 0 ? (
+                <DateTimePicker
+                  display="spinner"
+                  maximumDate={maximumTime}
+                  minimumDate={minimumTime}
+                  minuteInterval={15}
+                  mode="time"
+                  onChange={handlePickerChange}
+                  value={timeValueToDate(draftValue)}
+                />
+              ) : (
+                <View style={styles.timePickerEmpty}>
+                  <Text style={typography.bodySecondary}>No available times for this date.</Text>
+                </View>
+              )}
             </Pressable>
-          ))}
-        </View>
+          </Pressable>
+        </Modal>
       ) : null}
     </View>
   );
@@ -1441,18 +1425,6 @@ function getPetSpeciesKind(species?: string): PetSpeciesKind {
   return "unknown";
 }
 
-function hasCurrentVaccinations(pet: Pet) {
-  if (!pet.nextImmunizationExpiration) {
-    return false;
-  }
-
-  const expiration = parseIsoDate(pet.nextImmunizationExpiration);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  return expiration >= today;
-}
-
 function formatExperienceSummary({
   amenityPackage,
   enrichmentEnabled,
@@ -1566,6 +1538,19 @@ function timeValueToMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
+function timeValueToDate(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
+
+function dateToTimeValue(date: Date) {
+  const hours = `${date.getHours()}`.padStart(2, "0");
+  const minutes = `${date.getMinutes()}`.padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
 function parseIsoDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);
@@ -1608,6 +1593,20 @@ function formatPetNameList(petNames: string[]) {
   return `${names.slice(0, -1).join(", ")}, & ${names[names.length - 1]}`;
 }
 
+function getReservationLocationImage(location: string) {
+  const normalizedLocation = location.toLowerCase();
+
+  if (normalizedLocation.includes("wichita falls")) {
+    return resortImages.wichitaFallsHero;
+  }
+
+  if (normalizedLocation.includes("new braunfels")) {
+    return resortImages.homeHero;
+  }
+
+  return resortImages.loginHero;
+}
+
 function toggleSetValue(current: Set<string>, value: string) {
   const next = new Set(current);
 
@@ -1636,10 +1635,10 @@ const styles = StyleSheet.create({
     opacity: 0.34,
   },
   calendarDayInRange: {
-    backgroundColor: colors.champagne,
+    backgroundColor: colors.burgundySoft,
   },
   calendarDaySelected: {
-    backgroundColor: colors.blackCherry,
+    backgroundColor: colors.burgundy,
   },
   calendarDayText: {
     fontVariant: ["tabular-nums"],
@@ -1655,34 +1654,35 @@ const styles = StyleSheet.create({
   },
   confirmationCard: {
     alignItems: "center",
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   confirmationIcon: {
     alignItems: "center",
-    borderColor: colors.goldenrod,
+    backgroundColor: colors.successSoft,
+    borderColor: colors.success,
     borderRadius: radius.pill,
     borderWidth: 1,
     height: 64,
     justifyContent: "center",
     width: 64,
   },
-  content: {
-    gap: spacing.lg,
-  },
   dateCopy: {
     flex: 1,
-    gap: spacing.xxs,
+    gap: spacing[2],
   },
   dateField: {
     alignItems: "center",
-    backgroundColor: colors.porcelain,
-    borderColor: colors.creamBorder,
-    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radii.input,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.md,
-    minHeight: 64,
-    paddingHorizontal: spacing.lg,
+    minHeight: 58,
+    paddingHorizontal: spacing.md,
+  },
+  dateFieldActive: {
+    borderColor: colors.burgundy,
   },
   dateFieldDropdownOpen: {
     borderBottomLeftRadius: 0,
@@ -1699,7 +1699,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   divider: {
-    backgroundColor: colors.creamBorder,
+    backgroundColor: colors.divider,
     height: 1,
   },
   dropdownMenu: {
@@ -1725,36 +1725,68 @@ const styles = StyleSheet.create({
   },
   exitButton: {
     alignItems: "center",
-    height: 44,
+    backgroundColor: colors.burgundySoft,
+    borderRadius: radii.circle,
+    height: 40,
     justifyContent: "center",
-    width: 72,
+    width: 40,
   },
   flowBody: {
     flex: 1,
   },
   flowContent: {
-    gap: spacing.lg,
-    paddingBottom: 116,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.lg,
+    gap: layout.sectionGap,
+    paddingBottom: spacing.xl,
+    paddingHorizontal: layout.screenPaddingHorizontal,
+    paddingTop: layout.screenPaddingTop,
   },
   flowContentCompact: {
     gap: spacing.md,
-    paddingBottom: 92,
+    paddingBottom: spacing.lg,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
   flowRoot: {
     flex: 1,
+    paddingBottom: layout.tabBarHeight,
+  },
+  flowBackButton: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing[2],
+    minHeight: 36,
+  },
+  flowBackText: {
+    color: colors.burgundy,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 12,
+  },
+  flowSectionTitle: {
+    ...typography.sectionTitle,
+    color: colors.textPrimary,
   },
   footerActions: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderTopColor: colors.divider,
+    borderTopWidth: 1,
+    flexDirection: "row",
     gap: spacing.sm,
+    paddingHorizontal: layout.screenPaddingHorizontal,
+    paddingVertical: spacing.sm,
   },
   footerActionsCompact: {
     gap: spacing.xs,
   },
   formGroup: {
-    gap: spacing.sm,
+    gap: spacing.md,
+  },
+  footerButton: {
+    flex: 1,
+  },
+  cancelFooterButton: {
+    minWidth: 90,
+    paddingHorizontal: spacing.sm,
   },
   guidanceAction: {
     marginTop: spacing.xs,
@@ -1762,23 +1794,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   guidanceCard: {
+    backgroundColor: colors.goldSoft,
+    borderColor: colors.gold,
     gap: spacing.sm,
   },
-  header: {
+  locationOption: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
+    gap: spacing.sm,
+    padding: spacing[10],
   },
-  headerSpacer: {
-    width: 72,
-  },
-  headerTitle: {
+  locationOptionCopy: {
     flex: 1,
-    textAlign: "center",
+    gap: spacing[2],
   },
-  headerTitleCompact: {
-    fontSize: 18,
-    lineHeight: 22,
+  locationOptionImage: {
+    borderRadius: radii.small,
+    height: 64,
+    width: 84,
+  },
+  locationOptionList: {
+    gap: spacing.sm,
+  },
+  locationOptionName: {
+    ...typography.cardTitle,
+    color: colors.burgundy,
+  },
+  locationOptionSelected: {
+    backgroundColor: colors.burgundySoft,
+    borderColor: colors.burgundy,
+  },
+  locationRadio: {
+    alignItems: "center",
+    borderColor: colors.borderStrong,
+    borderRadius: radii.circle,
+    borderWidth: 1,
+    height: 26,
+    justifyContent: "center",
+    width: 26,
+  },
+  locationRadioSelected: {
+    backgroundColor: colors.burgundy,
+    borderColor: colors.burgundy,
   },
   monthButton: {
     alignItems: "center",
@@ -1793,7 +1850,7 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     alignItems: "center",
-    backgroundColor: "rgba(17, 17, 17, 0.58)",
+    backgroundColor: colors.overlayDeep,
     flex: 1,
     justifyContent: "center",
     padding: spacing.xl,
@@ -1804,9 +1861,9 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     alignItems: "center",
-    backgroundColor: colors.porcelain,
-    borderColor: colors.goldenrod,
-    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radii.largeCard,
     borderWidth: 1,
     gap: spacing.md,
     padding: spacing.xl,
@@ -1820,7 +1877,7 @@ const styles = StyleSheet.create({
   },
   modalIcon: {
     alignItems: "center",
-    backgroundColor: colors.champagne,
+    backgroundColor: colors.goldSoft,
     borderRadius: radius.pill,
     height: 56,
     justifyContent: "center",
@@ -1844,52 +1901,46 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   petAvatar: {
+    borderColor: colors.surface,
     borderRadius: radius.pill,
-    height: 72,
-    width: 72,
+    borderWidth: 2,
+    height: 58,
+    width: 58,
   },
   petAvatarCompact: {
-    height: 64,
-    width: 64,
+    height: 54,
+    width: 54,
   },
   petCopy: {
     flex: 1,
     gap: spacing.xxs,
   },
   petList: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   petOption: {
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.md,
-    padding: spacing.md,
+    padding: spacing.sm,
+  },
+  petOptionSelected: {
+    backgroundColor: colors.successSoft,
+    borderColor: colors.success,
   },
   petOptionCompact: {
     gap: spacing.sm,
     padding: spacing.sm,
   },
-  progressCopy: {
-    gap: spacing.xxs,
-  },
-  progressFill: {
-    backgroundColor: colors.blackCherry,
-    borderRadius: radius.pill,
-    height: "100%",
-  },
-  progressSummary: {
-    gap: spacing.sm,
-  },
-  progressTrack: {
-    backgroundColor: colors.champagne,
-    borderRadius: radius.pill,
-    height: 8,
-    overflow: "hidden",
+  root: {
+    backgroundColor: colors.background,
+    flex: 1,
   },
   sectionHeader: {
-    gap: spacing.xxs,
+    gap: spacing[4],
   },
   reviewCard: {
+    backgroundColor: colors.surfaceWarm,
     gap: spacing.xs,
     padding: spacing.lg,
   },
@@ -1903,51 +1954,59 @@ const styles = StyleSheet.create({
     width: 32,
   },
   selectCircleActive: {
-    backgroundColor: colors.blackCherry,
-    borderColor: colors.blackCherry,
+    backgroundColor: colors.success,
+    borderColor: colors.success,
   },
-  stickyHeader: {
-    backgroundColor: colors.ivory,
-    gap: spacing.lg,
-    paddingBottom: spacing.md,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm,
-    zIndex: 2,
+  timeFieldAccessory: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
   },
-  stickyHeaderCompact: {
-    gap: spacing.sm,
+  timePickerBackdrop: {
+    backgroundColor: colors.overlayDeep,
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  timePickerCancel: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  timePickerDone: {
+    ...typography.body,
+    color: colors.burgundy,
+    fontFamily: fonts.bodySemiBold,
+  },
+  timePickerEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 180,
+    padding: spacing.xl,
+  },
+  timePickerHeader: {
+    alignItems: "center",
+    borderBottomColor: colors.divider,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
     paddingBottom: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
   },
-  timeEmpty: {
+  timePickerSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.largeCard,
+    borderTopRightRadius: radii.largeCard,
+    paddingBottom: spacing.xxl,
+    paddingHorizontal: layout.screenPaddingHorizontal,
+    paddingTop: spacing.md,
+  },
+  timePickerTitle: {
+    ...typography.rowTitle,
+    textAlign: "center",
+  },
+  timePickerTitleCopy: {
     alignItems: "center",
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: spacing.md,
-  },
-  timeOption: {
-    alignItems: "center",
-    borderRadius: 0,
-    justifyContent: "center",
-    minHeight: 40,
-    paddingHorizontal: spacing.md,
-    width: "100%",
-  },
-  timeOptionActive: {
-    backgroundColor: colors.blackCherry,
-  },
-  timeOptions: {
-    paddingVertical: 0,
-  },
-  timeScroll: {
-    backgroundColor: colors.porcelain,
-    borderColor: colors.creamBorder,
-    borderBottomLeftRadius: radius.lg,
-    borderBottomRightRadius: radius.lg,
-    borderTopWidth: 0,
-    borderWidth: 1,
-    maxHeight: 184,
+    flex: 1,
+    gap: spacing.xxs,
+    paddingHorizontal: spacing.sm,
   },
   weekday: {
     textAlign: "center",

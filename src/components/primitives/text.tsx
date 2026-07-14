@@ -12,12 +12,12 @@ type TextProps = NativeTextProps & {
 };
 
 const toneStyles: Record<TextTone, { color: string }> = {
-  primary: { color: colors.richMahogany },
-  secondary: { color: colors.graphite },
-  muted: { color: colors.warmGray },
-  inverse: { color: colors.ivory },
-  accent: { color: colors.goldenrod },
-  brand: { color: colors.blackCherry },
+  primary: { color: colors.textPrimary },
+  secondary: { color: colors.textSecondary },
+  muted: { color: colors.textMuted },
+  inverse: { color: colors.textInverse },
+  accent: { color: colors.gold },
+  brand: { color: colors.burgundy },
 };
 
 export function Text({

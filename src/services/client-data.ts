@@ -1,5 +1,7 @@
 import { requireSupabase } from "@/lib/supabase";
 import {
+  getCachedCurrentGingrOwnerProfile,
+  getCachedGingrReservationDetail,
   getCurrentGingrOwnerProfile,
   getCurrentGingrPets,
   getCurrentGingrReservations,
@@ -24,6 +26,7 @@ export type ClientDashboardData = {
 
 let clientDashboardCache: ClientDashboardData | null = null;
 let clientDashboardRequest: Promise<ClientDashboardData> | null = null;
+let clientDashboardGeneration = 0;
 
 export async function getCurrentClientProfile(userId: string) {
   const { data, error } = await requireSupabase()
@@ -87,6 +90,10 @@ export async function getCurrentClientPets() {
 }
 
 export async function getCurrentClientPetsForApp(): Promise<Pet[]> {
+  if (clientDashboardCache) {
+    return clientDashboardCache.pets;
+  }
+
   try {
     const gingrPets = await getCurrentGingrPets();
 
@@ -116,6 +123,10 @@ export async function getCurrentClientOwnerProfileForApp() {
   }
 }
 
+export function getCachedCurrentClientOwnerProfileForApp() {
+  return getCachedCurrentGingrOwnerProfile();
+}
+
 export async function getReservationRequests() {
   const { data, error } = await requireSupabase()
     .from("reservation_requests")
@@ -135,6 +146,7 @@ export function getCachedClientDashboardData() {
 }
 
 export function clearClientDashboardCache() {
+  clientDashboardGeneration += 1;
   clientDashboardCache = null;
   clientDashboardRequest = null;
 }
@@ -152,6 +164,7 @@ export async function getCurrentClientDashboardData(options: { force?: boolean }
     return clientDashboardRequest;
   }
 
+  const requestGeneration = clientDashboardGeneration;
   clientDashboardRequest = Promise.all([
     getReservationRequests(),
     getCurrentClientReservationsForApp(),
@@ -165,11 +178,15 @@ export async function getCurrentClientDashboardData(options: { force?: boolean }
         upcomingReservations: reservations.upcoming,
       };
 
-      clientDashboardCache = dashboardData;
+      if (requestGeneration === clientDashboardGeneration) {
+        clientDashboardCache = dashboardData;
+      }
       return dashboardData;
     })
     .finally(() => {
-      clientDashboardRequest = null;
+      if (requestGeneration === clientDashboardGeneration) {
+        clientDashboardRequest = null;
+      }
     });
 
   return clientDashboardRequest;
@@ -194,10 +211,36 @@ export async function getCurrentClientReservationsForApp() {
 export async function getClientReservationDetailForApp(
   reservationIds: string[],
 ): Promise<ClientReservationDetail | null> {
+  const cachedDetail = getCachedClientReservationDetailForApp(reservationIds);
+
+  if (cachedDetail) {
+    return cachedDetail;
+  }
+
   const [detail, pets] = await Promise.all([
     getGingrReservationDetail(reservationIds),
-    getCurrentClientPetsForApp().catch(() => [] as Pet[]),
+    clientDashboardCache?.pets ?? getCurrentClientPetsForApp().catch(() => [] as Pet[]),
   ]);
+
+  return mapReservationDetailForApp(detail, pets);
+}
+
+export function getCachedClientReservationDetailForApp(
+  reservationIds: string[],
+): ClientReservationDetail | null {
+  const detail = getCachedGingrReservationDetail(reservationIds);
+
+  if (!detail) {
+    return null;
+  }
+
+  return mapReservationDetailForApp(detail, clientDashboardCache?.pets ?? []);
+}
+
+function mapReservationDetailForApp(
+  detail: Awaited<ReturnType<typeof getGingrReservationDetail>>,
+  pets: Pet[],
+): ClientReservationDetail | null {
 
   if (!detail || detail.reservations.length === 0) {
     return null;
@@ -205,12 +248,27 @@ export async function getClientReservationDetailForApp(
 
   const primaryReservation = detail.reservations[0];
   const petByName = new Map(pets.map((pet) => [normalizeComparableName(pet.name), pet]));
+  const groupedReservations = detail.reservations.map((reservation) => ({
+    ...reservation,
+    dateRange: formatReservationDateRange(reservation.startDate, reservation.endDate),
+    petDetails: reservation.petDetails.map((pet) => {
+      const profilePet = petByName.get(normalizeComparableName(pet.name));
+
+      return {
+        ...pet,
+        age: pet.age ?? profilePet?.age ?? null,
+        medicines: pet.medicines ?? profilePet?.medicines ?? profilePet?.medicationNotes ?? null,
+      };
+    }),
+  }));
 
   return {
     ...primaryReservation,
     animalNames: uniquePetNames(detail.reservations.flatMap((reservation) => reservation.animalNames)),
     dateRange: formatReservationDateRange(primaryReservation.startDate, primaryReservation.endDate),
     estimate: detail.estimate,
+    estimatesByReservation: detail.estimatesByReservation ?? {},
+    groupedReservations,
     id: detail.reservations.map((reservation) => reservation.id).join(","),
     petDetails: detail.reservations
       .flatMap((reservation) => reservation.petDetails)

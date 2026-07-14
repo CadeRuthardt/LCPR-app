@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 import type { PropsWithChildren } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 
-import { colors, radius, shadows, spacing } from "../../theme";
+import { colors, layout, radii, shadows } from "../../theme";
 
 type CardVariant = "default" | "elevated" | "featured";
 
@@ -17,17 +17,20 @@ export function Card({ children, variant = "default", style }: CardProps) {
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: radius.xl,
-    padding: spacing.xl,
+    borderRadius: radii.card,
+    padding: layout.cardPadding,
   },
   default: {
-    backgroundColor: colors.porcelain,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.creamBorder,
+    borderColor: colors.border,
+    ...shadows.card,
   },
   elevated: {
-    backgroundColor: colors.porcelain,
-    ...shadows.soft,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    ...shadows.card,
   },
   featured: {
     backgroundColor: colors.blackCherry,

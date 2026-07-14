@@ -9,12 +9,12 @@ import {
   Poppins_700Bold,
 } from "@expo-google-fonts/poppins";
 import { useFonts } from "expo-font";
-import { Tabs, useSegments } from "expo-router";
+import { Tabs } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { StatusBarStyle } from "expo-status-bar";
 import { Linking, View } from "react-native";
 
-import { colors, fonts, shadows, spacing } from "@/theme";
+import { colors, fonts, layout, shadows, spacing } from "@/theme";
 import { Button, Icon, Text } from "@/components/primitives";
 import type { IconName } from "@/components/primitives";
 import { LoginScreen } from "@/screens";
@@ -23,10 +23,10 @@ import { SessionProvider, useSession } from "@/utils/session";
 
 const tabs = [
   { name: "index", title: "Home", icon: "home" },
-  { name: "pets", title: "Pets", icon: "paw" },
   { name: "reservations", title: "Reservations", icon: "calendar" },
-  { name: "explore", title: "Explore", icon: "compass" },
-  { name: "profile", title: "Profile", icon: "user" },
+  { name: "pets", title: "Pets", icon: "paw" },
+  { name: "profile", title: "Account", icon: "user" },
+  { name: "explore", title: "More", icon: "menu" },
 ] as const;
 
 export default function RootLayout() {
@@ -54,12 +54,7 @@ export default function RootLayout() {
 
 function AuthGate() {
   const { client, isLoading, isSignedIn, signOut } = useSession();
-  const segments = useSegments();
-  const activeRoute = segments[0] ?? "index";
-  const statusBarStyle: StatusBarStyle =
-    !isSignedIn || activeRoute === "index" || activeRoute === "profile" || activeRoute === "pet-profile"
-      ? "light"
-      : "dark";
+  const statusBarStyle: StatusBarStyle = !isSignedIn ? "light" : "dark";
 
   if (isLoading) {
     return (
@@ -94,24 +89,25 @@ function AuthGate() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: colors.goldenrod,
-          tabBarInactiveTintColor: colors.ivory,
+          tabBarActiveTintColor: colors.burgundy,
+          tabBarInactiveTintColor: colors.tabInactive,
           tabBarLabelStyle: {
             fontFamily: fonts.bodySemiBold,
-            fontSize: 11,
-            lineHeight: 16,
+            fontSize: 10,
+            lineHeight: 14,
           },
           tabBarStyle: {
             position: "absolute",
             left: 0,
             right: 0,
             bottom: 0,
-            height: 78,
+            height: layout.tabBarHeight,
             paddingTop: spacing.xs,
             paddingBottom: spacing.md,
-            borderTopWidth: 0,
-            backgroundColor: colors.onyx,
-            ...shadows.elevated,
+            borderTopColor: colors.divider,
+            borderTopWidth: 1,
+            backgroundColor: colors.surface,
+            ...shadows.card,
           },
         }}
       >
@@ -209,12 +205,18 @@ function AccessPendingScreen({
 function TabIcon({
   color,
   name,
+  focused,
 }: {
   color: string;
   focused: boolean;
   name: IconName;
 }) {
-  return <Icon color={color} name={name} size={21} />;
+  return (
+    <View style={{ alignItems: "center", gap: 6 }}>
+      <Icon color={color} name={name} size={26} />
+      <View style={{ backgroundColor: focused ? colors.burgundy : "transparent", borderRadius: 2, height: 2, width: 30 }} />
+    </View>
+  );
 }
 
 function LoadingScreen() {

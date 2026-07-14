@@ -1,12 +1,17 @@
 import * as React from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ImageBackground, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ImageBackground, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { WebView } from "react-native-webview";
 
+import { AppCard, AppScreen } from "@/components/app";
 import { BackChevronButton, Button, Card, Icon, Screen, Section, Text } from "@/components/primitives";
 import { resortImages } from "@/data/mock-data";
-import { getGingrLocationCities, type GingrLocation } from "@/services/gingr";
-import { colors, radius, spacing } from "@/theme";
+import {
+  getCachedGingrLocationCities,
+  getGingrLocationCities,
+  type GingrLocation,
+} from "@/services/gingr";
+import { colors, radii, radius, spacing, typography } from "@/theme";
 import { router, useLocalSearchParams } from "expo-router";
 
 type CameraPreview = {
@@ -317,11 +322,17 @@ function getCameraLocationFromGingrLocation(location: GingrLocation) {
 }
 
 export function LiveCamerasScreen() {
-  const { reset } = useLocalSearchParams<{ reset?: string }>();
-  const [cameraLocations, setCameraLocations] = React.useState<CameraLocation[]>([]);
-  const [isLoadingLocations, setIsLoadingLocations] = React.useState(true);
+  const { location, reset } = useLocalSearchParams<{ location?: string; reset?: string }>();
+  const requestedLocationId = normalizeCameraLocationId(location ?? "");
+  const cachedCameraLocations = (getCachedGingrLocationCities() ?? [])
+    .map(getCameraLocationFromGingrLocation)
+    .filter((item): item is CameraLocation => Boolean(item));
+  const [cameraLocations, setCameraLocations] = React.useState<CameraLocation[]>(cachedCameraLocations);
+  const [isLoadingLocations, setIsLoadingLocations] = React.useState(cachedCameraLocations.length === 0);
   const [locationError, setLocationError] = React.useState<string | null>(null);
-  const [selectedLocationId, setSelectedLocationId] = React.useState<string | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = React.useState<string | null>(
+    requestedLocationId || null,
+  );
   const [selectedCamera, setSelectedCamera] = React.useState<CameraPreview | null>(null);
   const selectedLocation =
     cameraLocations.find((location) => location.id === selectedLocationId) ?? null;
@@ -370,18 +381,19 @@ export function LiveCamerasScreen() {
 
   React.useEffect(() => {
     setSelectedCamera(null);
-    setSelectedLocationId(null);
-  }, [reset]);
+    setSelectedLocationId(requestedLocationId || null);
+  }, [requestedLocationId, reset]);
 
   React.useEffect(() => {
     if (
+      !isLoadingLocations &&
       selectedLocationId &&
       !cameraLocations.some((location) => location.id === selectedLocationId)
     ) {
       setSelectedCamera(null);
       setSelectedLocationId(null);
     }
-  }, [cameraLocations, selectedLocationId]);
+  }, [cameraLocations, isLoadingLocations, selectedLocationId]);
 
   if (selectedLocation) {
     return (
@@ -398,56 +410,63 @@ export function LiveCamerasScreen() {
   }
 
   return (
-    <Screen contentStyle={styles.content}>
-      <View style={styles.header}>
+    <AppScreen>
+      <View style={styles.locationPageHeader}>
         <BackChevronButton
           onPress={() => {
-            if (selectedLocation) {
-              setSelectedLocationId(null);
-              return;
-            }
-
             router.replace("/");
           }}
           style={styles.backButton}
         />
-        <View style={styles.headerCopy}>
-          <Text variant="heading">Choose Location</Text>
-          <Text variant="body" tone="secondary">
-            Choose your resort location.
+        <View style={styles.locationPageHeaderCopy}>
+          <Text style={typography.screenTitle}>Live Cameras</Text>
+          <Text style={typography.bodySecondary}>
+            Choose a resort to view its available cameras.
           </Text>
         </View>
       </View>
 
-      <View style={styles.locationList}>
-        {isLoadingLocations ? (
-          <Card style={styles.locationStatusCard}>
-            <Text variant="title">Preparing camera locations...</Text>
-            <Text variant="body" tone="secondary">
-              Checking Gingr for active resort locations.
-            </Text>
-          </Card>
-        ) : null}
-        {!isLoadingLocations && locationError ? (
-          <Card style={styles.locationStatusCard}>
-            <Text variant="title">Camera locations unavailable</Text>
-            <Text variant="body" tone="secondary">
-              {locationError}
-            </Text>
-          </Card>
-        ) : null}
-        {!isLoadingLocations ? cameraLocations.map((location) => (
-          <LocationCard
-            key={location.id}
-            location={location}
-            onPress={() => {
-              setSelectedCamera(null);
-              setSelectedLocationId(location.id);
-            }}
-          />
-        )) : null}
+      <View style={styles.locationSection}>
+        <View style={styles.locationSectionHeading}>
+          <View style={styles.locationSectionIcon}>
+            <Icon color={colors.burgundy} name="camera" size={18} />
+          </View>
+          <View style={styles.locationSectionCopy}>
+            <Text style={typography.cardTitle}>Resort Locations</Text>
+            <Text style={typography.caption}>Select a location to start watching.</Text>
+          </View>
+        </View>
+
+        <View style={styles.locationList}>
+          {isLoadingLocations ? (
+            <Card style={styles.locationStatusCard}>
+              <Text variant="title">Preparing camera locations...</Text>
+              <Text variant="body" tone="secondary">
+                Checking Gingr for active resort locations.
+              </Text>
+            </Card>
+          ) : null}
+          {!isLoadingLocations && locationError ? (
+            <Card style={styles.locationStatusCard}>
+              <Text variant="title">Camera locations unavailable</Text>
+              <Text variant="body" tone="secondary">
+                {locationError}
+              </Text>
+            </Card>
+          ) : null}
+          {!isLoadingLocations ? cameraLocations.map((location) => (
+            <LocationCard
+              key={location.id}
+              location={location}
+              onPress={() => {
+                setSelectedCamera(null);
+                setSelectedLocationId(location.id);
+              }}
+            />
+          )) : null}
+        </View>
       </View>
-    </Screen>
+    </AppScreen>
   );
 }
 
@@ -467,6 +486,7 @@ function CameraPlayer({
   const vipCameras = location.vipCameras;
   const [accessCode, setAccessCode] = React.useState("");
   const [accessError, setAccessError] = React.useState<string | null>(null);
+  const [isVipModalVisible, setIsVipModalVisible] = React.useState(false);
   const [unlockedVipCameraId, setUnlockedVipCameraId] = React.useState<string | null>(null);
   const unlockedVipCamera =
     vipCameras.find((vipCamera) => vipCamera.id === unlockedVipCameraId) ?? null;
@@ -515,6 +535,7 @@ function CameraPlayer({
     setAccessCode("");
     setUnlockedVipCameraId(matchedCamera.id);
     onSelectCamera(matchedCamera);
+    setIsVipModalVisible(false);
 
     try {
       await AsyncStorage.setItem(getVipAccessStorageKey(location.id), matchedCamera.id);
@@ -540,52 +561,92 @@ function CameraPlayer({
   }
 
   return (
-    <Screen contentStyle={styles.viewerContent}>
-      <View style={styles.viewerHeader}>
+    <AppScreen>
+      <View style={styles.viewerPageHeader}>
         <BackChevronButton onPress={onBack} style={styles.backButton} />
-        <View style={styles.viewerHeaderCopy}>
-          <Text variant="heading" style={styles.viewerTitle}>
-            {location.name} Cameras
-          </Text>
+        <View style={styles.viewerPageHeaderCopy}>
+          <View style={styles.viewerTitleRow}>
+            <Text style={typography.screenTitle}>{location.name}</Text>
+            {vipCameras.length ? (
+              <Pressable
+                accessibilityLabel="Open VIP camera access"
+                accessibilityRole="button"
+                onPress={() => setIsVipModalVisible(true)}
+                style={({ pressed }) => [
+                  styles.vipHeaderButton,
+                  unlockedVipCamera && styles.vipHeaderButtonUnlocked,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Icon
+                  color={unlockedVipCamera ? colors.success : colors.goldDark}
+                  name={unlockedVipCamera ? "check" : "lock"}
+                  size={13}
+                />
+                <Text style={[styles.vipHeaderButtonText, unlockedVipCamera && styles.vipHeaderButtonTextUnlocked]}>
+                  VIP
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <Text style={typography.bodySecondary}>Live resort cameras</Text>
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.cameraTabsContent}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-      >
-        {publicCameras.map((option) => {
-          const isActive = option.id === camera?.id;
-
-          return (
-            <Pressable
-              accessibilityRole="button"
-              key={option.id}
-              onPress={() => onSelectCamera(option)}
-              style={({ pressed }) => [
-                styles.cameraTab,
-                isActive && styles.cameraTabActive,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text variant="caption" tone={isActive ? "inverse" : "primary"}>
-                {option.title}
+      <View style={styles.cameraPickerSection}>
+        <View style={styles.cameraPickerHeading}>
+          <View style={styles.cameraPickerTitleRow}>
+            <View style={styles.cameraPickerIcon}>
+              <Icon color={colors.burgundy} name="camera" size={18} />
+            </View>
+            <View style={styles.cameraPickerCopy}>
+              <Text style={typography.cardTitle}>Choose a Camera</Text>
+              <Text style={typography.caption}>
+                {camera ? camera.title : "Select a feed to begin watching"}
               </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-      {publicCameras.length > 3 ? (
-        <View style={styles.cameraScrollHint}>
-          <Text variant="caption" tone="muted">
-            Swipe for more cameras
-          </Text>
-          <Icon color={colors.mutedGold} name="chevron-right" size={12} />
+            </View>
+          </View>
+          <View style={styles.cameraCountBadge}>
+            <Text style={styles.cameraCountText}>{publicCameras.length}</Text>
+          </View>
         </View>
-      ) : null}
 
-      <View style={styles.playerFrame}>
+        <ScrollView
+          contentContainerStyle={styles.cameraTabsContent}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {publicCameras.map((option) => {
+            const isActive = option.id === camera?.id;
+
+            return (
+              <Pressable
+                accessibilityRole="button"
+                key={option.id}
+                onPress={() => onSelectCamera(option)}
+                style={({ pressed }) => [
+                  styles.cameraTab,
+                  isActive && styles.cameraTabActive,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={[styles.cameraTabDot, isActive && styles.cameraTabDotActive]} />
+                <Text style={[styles.cameraTabText, isActive && styles.cameraTabTextActive]}>
+                  {option.title}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        {publicCameras.length > 3 ? (
+          <View style={styles.cameraScrollHint}>
+            <Text style={typography.caption}>Swipe to see all cameras</Text>
+            <Icon color={colors.goldDark} name="chevron-right" size={12} />
+          </View>
+        ) : null}
+      </View>
+
+      <AppCard padding="none" style={styles.playerFrame}>
         {camera ? (
           camera.url ? (
             <WebView
@@ -640,7 +701,7 @@ function CameraPlayer({
             </View>
           </ImageBackground>
         )}
-      </View>
+      </AppCard>
 
       <InfoCard
         body={
@@ -652,27 +713,49 @@ function CameraPlayer({
         title="Camera Schedule"
       />
 
-      {vipCameras.length ? (
-        <VipCameraAccessCard
-          accessCode={accessCode}
-          accessError={accessError}
-          camera={camera}
-          onChangeAccessCode={(value) => {
-            setAccessCode(value);
-            setAccessError(null);
-          }}
-          onRemoveAccess={() => {
-            void removeVipAccess();
-          }}
-          onSelectCamera={onSelectCamera}
-          onSubmitAccessCode={() => {
-            void unlockVipCamera();
-          }}
-          unlockedCamera={unlockedVipCamera}
-        />
-      ) : null}
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setIsVipModalVisible(false)}
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        transparent
+        visible={isVipModalVisible}
+      >
+        <KeyboardAvoidingView
+          behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
+          style={styles.vipModalContainer}
+        >
+          <Pressable
+            accessibilityLabel="Close VIP camera access"
+            accessibilityRole="button"
+            onPress={() => setIsVipModalVisible(false)}
+            style={styles.vipModalBackdrop}
+          />
+          <VipCameraAccessCard
+            accessCode={accessCode}
+            accessError={accessError}
+            camera={camera}
+            onChangeAccessCode={(value) => {
+              setAccessCode(value);
+              setAccessError(null);
+            }}
+            onClose={() => setIsVipModalVisible(false)}
+            onRemoveAccess={() => {
+              void removeVipAccess();
+            }}
+            onSelectCamera={(selectedCamera) => {
+              onSelectCamera(selectedCamera);
+              setIsVipModalVisible(false);
+            }}
+            onSubmitAccessCode={() => {
+              void unlockVipCamera();
+            }}
+            unlockedCamera={unlockedVipCamera}
+          />
+        </KeyboardAvoidingView>
+      </Modal>
 
-    </Screen>
+    </AppScreen>
   );
 }
 
@@ -685,6 +768,7 @@ function VipCameraAccessCard({
   accessError,
   camera,
   onChangeAccessCode,
+  onClose,
   onRemoveAccess,
   onSelectCamera,
   onSubmitAccessCode,
@@ -694,6 +778,7 @@ function VipCameraAccessCard({
   accessError: string | null;
   camera: CameraPreview | null;
   onChangeAccessCode: (value: string) => void;
+  onClose: () => void;
   onRemoveAccess: () => void;
   onSelectCamera: (camera: CameraPreview) => void;
   onSubmitAccessCode: () => void;
@@ -702,17 +787,25 @@ function VipCameraAccessCard({
   const isActive = unlockedCamera?.id === camera?.id;
 
   return (
-    <Card style={styles.vipAccessCard}>
+    <AppCard style={styles.vipAccessCard}>
       <View style={styles.vipAccessHeader}>
         <View style={styles.vipAccessIcon}>
           <Icon color={colors.goldenrod} name="camera" size={20} />
         </View>
         <View style={styles.vipAccessCopy}>
-          <Text variant="title">VIP Camera Access</Text>
+          <Text style={typography.cardTitle}>VIP Camera Access</Text>
           <Text variant="caption" tone="muted">
             Enter the access code provided by reception for your suite camera.
           </Text>
         </View>
+        <Pressable
+          accessibilityLabel="Close VIP camera access"
+          accessibilityRole="button"
+          onPress={onClose}
+          style={styles.vipModalCloseButton}
+        >
+          <Icon color={colors.textSecondary} name="x" size={18} />
+        </Pressable>
       </View>
 
       {unlockedCamera ? (
@@ -773,7 +866,7 @@ function VipCameraAccessCard({
           />
         </View>
       )}
-    </Card>
+    </AppCard>
   );
 }
 
@@ -787,17 +880,17 @@ function InfoCard({
   title: string;
 }) {
   return (
-    <Card style={styles.infoCard}>
+    <AppCard padding="compact" style={styles.infoCard} variant="warm">
+      <View style={styles.infoIcon}>
+        <Icon color={colors.burgundy} name={icon} size={20} />
+      </View>
       <View style={styles.infoCopy}>
-        <Text variant="title">{title}</Text>
-        <Text variant="body" tone="secondary">
+        <Text style={typography.cardTitle}>{title}</Text>
+        <Text style={typography.bodySecondary}>
           {body}
         </Text>
       </View>
-      <View style={styles.infoIcon}>
-        <Icon color={colors.blackCherry} name={icon} size={34} />
-      </View>
-    </Card>
+    </AppCard>
   );
 }
 
@@ -808,9 +901,20 @@ function LocationCard({
   location: CameraLocation;
   onPress: () => void;
 }) {
+  const publicCameraCount = location.cameras.filter((camera) => Boolean(camera.url)).length;
+  const vipCameraCount = location.vipCameras.filter((camera) => Boolean(camera.url)).length;
+  const availabilityLabel = publicCameraCount > 0
+    ? `${publicCameraCount} camera${publicCameraCount === 1 ? "" : "s"}${vipCameraCount > 0 ? ` + ${vipCameraCount} VIP` : ""}`
+    : "Coming soon";
+
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [pressed && styles.pressed]}>
-      <Card style={styles.locationCard}>
+    <Pressable
+      accessibilityLabel={`${location.name}. ${availabilityLabel}. ${location.description}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [pressed && styles.pressed]}
+    >
+      <AppCard padding="none" style={styles.locationCard}>
         <ImageBackground
           source={{ uri: location.heroImageUrl }}
           imageStyle={styles.locationImage}
@@ -818,22 +922,31 @@ function LocationCard({
           style={styles.locationPreview}
         >
           <View style={styles.locationOverlay}>
-            <Text variant="title" tone="inverse">
-              {location.name}
-            </Text>
+            <View style={styles.locationImageBadge}>
+              <Icon color={colors.white} name="camera" size={13} />
+            </View>
           </View>
         </ImageBackground>
         <View style={styles.locationBody}>
-          <View style={styles.cameraTitleRow}>
-            <View style={styles.locationCopy}>
-              <Text variant="body" tone="secondary">
-                {location.description}
+          <View style={styles.locationCopy}>
+            <Text numberOfLines={1} style={styles.locationName}>
+              {location.name}
+            </Text>
+            <Text numberOfLines={2} style={typography.bodySecondary}>
+              {location.description}
+            </Text>
+            <View style={[styles.locationAvailability, publicCameraCount === 0 && styles.locationAvailabilityPending]}>
+              <View style={[styles.locationAvailabilityDot, publicCameraCount === 0 && styles.locationAvailabilityDotPending]} />
+              <Text style={[styles.locationAvailabilityText, publicCameraCount === 0 && styles.locationAvailabilityTextPending]}>
+                {availabilityLabel}
               </Text>
             </View>
-            <Icon color={colors.blackCherry} name="chevron-right" size={16} />
+          </View>
+          <View style={styles.locationChevron}>
+            <Icon color={colors.burgundy} name="chevron-right" size={17} />
           </View>
         </View>
-      </Card>
+      </AppCard>
     </Pressable>
   );
 }
@@ -904,10 +1017,22 @@ const styles = StyleSheet.create({
   },
   cameraScrollHint: {
     alignItems: "center",
-    alignSelf: "center",
+    alignSelf: "flex-start",
     flexDirection: "row",
-    gap: spacing.xs,
-    marginTop: -spacing.xs,
+    gap: spacing[6],
+  },
+  cameraCountBadge: {
+    alignItems: "center",
+    backgroundColor: colors.burgundySoft,
+    borderRadius: radii.pill,
+    height: 30,
+    justifyContent: "center",
+    minWidth: 30,
+    paddingHorizontal: spacing[8],
+  },
+  cameraCountText: {
+    ...typography.label,
+    color: colors.burgundy,
   },
   cameraSelectorCard: {
     gap: 0,
@@ -968,20 +1093,67 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cameraTab: {
+    alignItems: "center",
     backgroundColor: colors.porcelain,
     borderColor: colors.creamBorder,
     borderRadius: radius.pill,
     borderWidth: 1,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    gap: spacing[8],
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing[10],
   },
   cameraTabActive: {
-    backgroundColor: colors.blackCherry,
-    borderColor: colors.blackCherry,
+    backgroundColor: colors.burgundySoft,
+    borderColor: colors.burgundy,
+  },
+  cameraTabDot: {
+    backgroundColor: colors.borderStrong,
+    borderRadius: radii.circle,
+    height: 7,
+    width: 7,
+  },
+  cameraTabDotActive: {
+    backgroundColor: colors.success,
+  },
+  cameraTabText: {
+    ...typography.label,
+    color: colors.textPrimary,
+  },
+  cameraTabTextActive: {
+    color: colors.burgundy,
   },
   cameraTabsContent: {
     gap: spacing.sm,
     paddingRight: spacing.xl,
+  },
+  cameraPickerCopy: {
+    flex: 1,
+    gap: spacing[2],
+  },
+  cameraPickerHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+  },
+  cameraPickerIcon: {
+    alignItems: "center",
+    backgroundColor: colors.goldSoft,
+    borderRadius: radii.input,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  cameraPickerSection: {
+    gap: spacing.sm,
+  },
+  cameraPickerTitleRow: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
   },
   cameraTitleRow: {
     alignItems: "center",
@@ -991,13 +1163,6 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: spacing.lg,
-  },
-  header: {
-    gap: spacing.lg,
-    paddingTop: spacing.xs,
-  },
-  headerCopy: {
-    gap: spacing.xs,
   },
   hero: {
     borderRadius: radius.xl,
@@ -1027,20 +1192,41 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   locationBody: {
-    padding: spacing.lg,
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   locationCard: {
-    gap: 0,
+    flexDirection: "row",
+    minHeight: 126,
     overflow: "hidden",
-    padding: 0,
+  },
+  locationChevron: {
+    alignItems: "center",
+    backgroundColor: colors.burgundySoft,
+    borderRadius: radii.circle,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
   },
   locationCopy: {
     flex: 1,
-    gap: spacing.xs,
+    gap: spacing[6],
   },
   locationImage: {
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
+    borderBottomLeftRadius: radii.card,
+    borderTopLeftRadius: radii.card,
+  },
+  locationImageBadge: {
+    alignItems: "center",
+    backgroundColor: colors.overlayBurgundy,
+    borderRadius: radii.circle,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
   },
   locationHeroImage: {
     borderRadius: radius.lg,
@@ -1055,16 +1241,78 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   locationList: {
-    gap: spacing.lg,
+    gap: spacing.sm,
   },
   locationOverlay: {
-    backgroundColor: colors.overlayDeep,
+    backgroundColor: colors.overlay,
     flex: 1,
     justifyContent: "flex-end",
-    padding: spacing.lg,
+    padding: spacing.sm,
+  },
+  locationPageHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  locationPageHeaderCopy: {
+    flex: 1,
+    gap: spacing[6],
   },
   locationPreview: {
-    height: 150,
+    width: 118,
+  },
+  locationName: {
+    ...typography.cardTitle,
+    color: colors.burgundy,
+  },
+  locationAvailability: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.successSoft,
+    borderRadius: radii.pill,
+    flexDirection: "row",
+    gap: spacing[6],
+    paddingHorizontal: spacing[10],
+    paddingVertical: spacing[4],
+  },
+  locationAvailabilityDot: {
+    backgroundColor: colors.success,
+    borderRadius: radii.circle,
+    height: 6,
+    width: 6,
+  },
+  locationAvailabilityDotPending: {
+    backgroundColor: colors.goldDark,
+  },
+  locationAvailabilityPending: {
+    backgroundColor: colors.goldSoft,
+  },
+  locationAvailabilityText: {
+    ...typography.caption,
+    color: colors.success,
+  },
+  locationAvailabilityTextPending: {
+    color: colors.goldDark,
+  },
+  locationSection: {
+    gap: spacing.md,
+  },
+  locationSectionCopy: {
+    flex: 1,
+    gap: spacing[2],
+  },
+  locationSectionHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  locationSectionIcon: {
+    alignItems: "center",
+    backgroundColor: colors.goldSoft,
+    borderRadius: radii.input,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
   },
   locationStatusCard: {
     gap: spacing.xs,
@@ -1073,18 +1321,19 @@ const styles = StyleSheet.create({
   infoCard: {
     alignItems: "center",
     flexDirection: "row",
-    gap: spacing.lg,
-    justifyContent: "space-between",
-    padding: spacing.lg,
+    gap: spacing.sm,
   },
   infoCopy: {
     flex: 1,
-    gap: spacing.xs,
+    gap: spacing[2],
   },
   infoIcon: {
     alignItems: "center",
+    backgroundColor: colors.goldSoft,
+    borderRadius: radii.input,
+    height: 42,
     justifyContent: "center",
-    width: 56,
+    width: 42,
   },
   pressed: {
     opacity: 0.86,
@@ -1098,8 +1347,9 @@ const styles = StyleSheet.create({
   },
   playerFrame: {
     backgroundColor: colors.onyx,
-    borderRadius: radius.lg,
-    height: 330,
+    borderColor: colors.border,
+    borderRadius: radii.card,
+    height: 250,
     overflow: "hidden",
   },
   playerUnavailable: {
@@ -1109,26 +1359,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: spacing.lg,
   },
-  viewerContent: {
-    gap: spacing.md,
+  viewerPageHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.sm,
   },
-  viewerHeader: {
+  viewerPageHeaderCopy: {
+    flex: 1,
+    gap: spacing[6],
+  },
+  viewerTitleRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: spacing.md,
-    paddingHorizontal: spacing.xl,
-  },
-  viewerHeaderCopy: {
-    alignItems: "center",
-    flex: 1,
-    gap: spacing.xs,
-    paddingRight: 36,
-  },
-  viewerSubtitle: {
-    textAlign: "center",
-  },
-  viewerTitle: {
-    textAlign: "center",
+    flexWrap: "wrap",
+    gap: spacing[10],
   },
   vipCard: {
     alignItems: "flex-start",
@@ -1151,6 +1395,7 @@ const styles = StyleSheet.create({
   vipAccessCard: {
     gap: spacing.md,
     padding: spacing.lg,
+    width: "100%",
   },
   vipAccessCopy: {
     flex: 1,
@@ -1160,7 +1405,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   vipAccessHeader: {
-    alignItems: "center",
+    alignItems: "flex-start",
     flexDirection: "row",
     gap: spacing.md,
   },
@@ -1174,13 +1419,54 @@ const styles = StyleSheet.create({
   },
   vipAccessInput: {
     borderColor: colors.creamBorder,
-    borderRadius: radius.pill,
+    borderRadius: radii.input,
     borderWidth: 1,
     color: colors.blackCherry,
     fontFamily: "Poppins_400Regular",
     fontSize: 16,
     minHeight: 52,
     paddingHorizontal: spacing.lg,
+  },
+  vipHeaderButton: {
+    alignItems: "center",
+    backgroundColor: colors.goldSoft,
+    borderColor: colors.gold,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing[6],
+    minHeight: 32,
+    paddingHorizontal: spacing[12],
+    paddingVertical: spacing[6],
+  },
+  vipHeaderButtonText: {
+    ...typography.label,
+    color: colors.goldDark,
+  },
+  vipHeaderButtonTextUnlocked: {
+    color: colors.success,
+  },
+  vipHeaderButtonUnlocked: {
+    backgroundColor: colors.successSoft,
+    borderColor: colors.success,
+  },
+  vipModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlayDeep,
+  },
+  vipModalCloseButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.circle,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
+  vipModalContainer: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing[20],
   },
   vipSelector: {
     backgroundColor: colors.porcelain,

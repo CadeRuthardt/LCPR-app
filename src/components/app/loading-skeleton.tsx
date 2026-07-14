@@ -1,0 +1,4 @@
+import { StyleSheet, View } from "react-native";
+import { colors, radii, spacing } from "@/theme";
+export function LoadingSkeleton({ rows = 3 }: { rows?: number }) { return <View style={styles.card}><View style={styles.avatar} /><View style={styles.copy}>{Array.from({ length: rows }, (_, index) => <View key={index} style={[styles.line, { width: index === rows - 1 ? "58%" : "86%" }]} />)}</View></View>; }
+const styles = StyleSheet.create({ card: { alignItems: "center", backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.card, borderWidth: 1, flexDirection: "row", gap: spacing[14], padding: spacing[18] }, avatar: { backgroundColor: colors.surfaceMuted, borderRadius: radii.circle, height: 64, width: 64 }, copy: { flex: 1, gap: spacing[10] }, line: { backgroundColor: colors.surfaceMuted, borderRadius: 4, height: 10 } });

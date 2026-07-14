@@ -2,7 +2,8 @@ import type { Session, User } from "@supabase/supabase-js";
 import * as React from "react";
 
 import { isSupabaseConfigured, requireSupabase, supabase } from "@/lib/supabase";
-import { clearClientDashboardCache, ensureCurrentClientProfile } from "@/services/client-data";
+import { clearAppSessionData } from "@/services/app-preload";
+import { ensureCurrentClientProfile } from "@/services/client-data";
 import type { ClientProfile } from "@/types/database";
 import { getFriendlyAuthError } from "@/utils/auth-errors";
 
@@ -26,6 +27,7 @@ const SessionContext = React.createContext<SessionContextValue | null>(null);
 type SessionProviderProps = React.PropsWithChildren;
 
 export function SessionProvider({ children }: SessionProviderProps) {
+  const activeDataUserIdRef = React.useRef<string | null>(null);
   const [authError, setAuthError] = React.useState<string | null>(null);
   const [client, setClient] = React.useState<ClientProfile | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -34,7 +36,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const loadClient = React.useCallback(async (activeSession: Session | null) => {
     setIsLoading(true);
     setSession(activeSession);
-    clearClientDashboardCache();
+    const nextUserId = activeSession?.user?.id ?? null;
+    if (activeDataUserIdRef.current !== nextUserId) {
+      clearAppSessionData();
+      activeDataUserIdRef.current = nextUserId;
+    }
 
     try {
       if (!activeSession?.user) {
@@ -183,7 +189,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
     setClient(null);
     setSession(null);
-    clearClientDashboardCache();
+    clearAppSessionData();
+    activeDataUserIdRef.current = null;
   }, []);
 
   const value = React.useMemo<SessionContextValue>(

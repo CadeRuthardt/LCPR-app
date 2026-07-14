@@ -22,9 +22,9 @@ const styles = StyleSheet.create({
     borderColor: colors.creamBorder,
     borderRadius: radius.lg,
     borderWidth: 1,
-    color: colors.richMahogany,
     minHeight: 56,
     paddingHorizontal: spacing.lg,
     ...typography.body,
+    color: colors.richMahogany,
   },
 });

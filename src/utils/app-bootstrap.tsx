@@ -3,58 +3,52 @@ import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, Image, StyleSheet, View } from "react-native";
 
 import { Text } from "@/components/primitives";
-import { clearClientDashboardCache, preloadClientDashboardData } from "@/services/client-data";
+import { clearAppSessionData, preloadAppSessionData } from "@/services/app-preload";
 import { colors, spacing } from "@/theme";
 import { useSession } from "@/utils/session";
 
 const logo = require("../../assets/logo.png");
 const minimumWarmupMs = 900;
-const maximumWarmupMs = 4200;
 
 type AppBootstrapProviderProps = React.PropsWithChildren;
 
 export function AppBootstrapProvider({ children }: AppBootstrapProviderProps) {
   const { isSignedIn, user } = useSession();
-  const activeUserIdRef = React.useRef<string | null>(null);
-  const [isWarming, setIsWarming] = React.useState(false);
+  const [warmedUserId, setWarmedUserId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!isSignedIn || !user?.id) {
-      clearClientDashboardCache();
-      activeUserIdRef.current = null;
-      setIsWarming(false);
+      clearAppSessionData();
+      setWarmedUserId(null);
       return;
     }
 
-    if (activeUserIdRef.current === user.id) {
+    if (warmedUserId === user.id) {
       return;
     }
 
     let isMounted = true;
-    const warmup = preloadClientDashboardData();
-
-    activeUserIdRef.current = user.id;
-    setIsWarming(true);
+    const warmup = preloadAppSessionData(user.id);
 
     Promise.all([
       wait(minimumWarmupMs),
-      Promise.race([warmup, wait(maximumWarmupMs)]),
+      warmup,
     ])
       .catch(() => {
         // Individual screens still show their own refresh state if warmup fails.
       })
       .finally(() => {
         if (isMounted) {
-          setIsWarming(false);
+          setWarmedUserId(user.id);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [isSignedIn, user?.id]);
+  }, [isSignedIn, user?.id, warmedUserId]);
 
-  if (isWarming) {
+  if (isSignedIn && user?.id && warmedUserId !== user.id) {
     return <AppBootstrapScreen />;
   }
 
@@ -76,7 +70,7 @@ function AppBootstrapScreen() {
         <View style={styles.copy}>
           <ActivityIndicator color={colors.goldenrod} />
           <Text variant="body" tone="inverse" style={styles.message}>
-            Preparing your resort details...
+            Loading your resort details...
           </Text>
         </View>
       </View>

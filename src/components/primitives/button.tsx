@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import type { PressableProps, StyleProp, ViewStyle } from "react-native";
 
-import { colors, radius, spacing } from "../../theme";
+import { colors, fonts, radii, spacing } from "../../theme";
 import { Icon } from "./icon";
 import type { IconName } from "./icon";
 import { Text } from "./text";
@@ -58,16 +58,18 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 50,
-    borderRadius: radius.pill,
+    minHeight: 52,
+    borderRadius: radii.button,
     justifyContent: "center",
     paddingHorizontal: spacing.xl,
   },
   primary: {
-    backgroundColor: colors.blackCherry,
+    backgroundColor: colors.burgundy,
   },
   secondary: {
-    backgroundColor: colors.champagne,
+    backgroundColor: colors.surface,
+    borderColor: colors.burgundy,
+    borderWidth: 1.25,
   },
   ghost: {
     backgroundColor: "transparent",
@@ -87,6 +89,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   label: {
-    textTransform: "uppercase",
+    fontFamily: fonts.bodyMedium,
+    fontSize: 15,
+    lineHeight: 20,
   },
 });

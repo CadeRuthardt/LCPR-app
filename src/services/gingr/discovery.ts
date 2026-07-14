@@ -18,6 +18,7 @@ export type GingrDiscoveryAction =
   | "reservation-detail"
   | "current-reservations"
   | "reservation-detail-test"
+  | "estimate-test"
   | "current-client-snapshot";
 
 export type GingrDiscoveryRequest = {
@@ -150,6 +151,49 @@ export type CurrentGingrReservationsResponse = {
   reservations: GingrReservation[];
 };
 
+export type GingrInvoiceSummary = {
+  date: string | null;
+  id: string | null;
+  ownerId: string | null;
+  reservationId: string | null;
+  reservationIds?: string[];
+  reservationReferences?: Array<{ key: string; path: string; value: string }>;
+  status: string | null;
+  total: string | null;
+  transactionFieldKeys?: string[];
+  transactionItems?: Array<Record<string, unknown>>;
+  transactionLookupError?: string | null;
+};
+
+export type CurrentGingrInvoicesResponse = {
+  lookups?: Array<{
+    label: string;
+    matchingOwnerInvoices: GingrInvoiceSummary[];
+    matchingOwnerCount?: number;
+    pagesScanned?: number;
+    sampleFieldKeys?: string[];
+    totalReturned?: number;
+  }>;
+  note?: string;
+  ownerId: string | null;
+};
+
+export function getGingrInvoiceReservationIds(invoice: GingrInvoiceSummary) {
+  const transactionItemIds = (invoice.transactionItems ?? []).map((item) => {
+    const reservationId = item.reservationId;
+    return typeof reservationId === "string" || typeof reservationId === "number"
+      ? String(reservationId)
+      : null;
+  });
+
+  return Array.from(new Set([
+    invoice.reservationId,
+    ...(invoice.reservationIds ?? []),
+    ...(invoice.reservationReferences ?? []).map((reference) => reference.value),
+    ...transactionItemIds,
+  ].filter((id): id is string => Boolean(id?.trim())).map((id) => id.trim())));
+}
+
 export type GingrReservationDetailPet = {
   age: string | null;
   allergies: string | null;
@@ -169,6 +213,7 @@ export type GingrReservationEstimate = {
   details: Array<{
     label: string | null;
     quantity: string | null;
+    unitPrice: string | null;
     total: string | null;
   }>;
   location: {
@@ -180,8 +225,20 @@ export type GingrReservationEstimate = {
   } | null;
   reservations: Array<{
     label: string | null;
+    modifiers: Array<{
+      label: string | null;
+      quantity: string | null;
+      total: string | null;
+      unitPrice: string | null;
+    }>;
+    quantity: string | null;
     subtotal: string | null;
+    unitPrice: string | null;
   }>;
+  remainingDue: string | null;
+  subtotal: string | null;
+  tax: string | null;
+  totalDue: string | null;
 };
 
 export type GingrReservationDetail = GingrReservation & {
@@ -211,6 +268,7 @@ export type GingrReservationDetail = GingrReservation & {
 
 export type GingrReservationDetailResponse = {
   estimate: GingrReservationEstimate | null;
+  estimatesByReservation?: Record<string, GingrReservationEstimate>;
   ownerId: string | null;
   rawReservations?: Array<Record<string, unknown>>;
   reservations: GingrReservationDetail[];
@@ -235,6 +293,76 @@ export type GingrReservationRequestCatalog = {
 };
 
 const gingrDiscoveryTimeoutMs = 35000;
+
+type AsyncValueCache<T> = {
+  hasValue: boolean;
+  request: Promise<T> | null;
+  value: T | null;
+};
+
+function createAsyncValueCache<T>(): AsyncValueCache<T> {
+  return { hasValue: false, request: null, value: null };
+}
+
+const petsCache = createAsyncValueCache<GingrPet[]>();
+const ownerProfileCache = createAsyncValueCache<CurrentGingrOwnerProfileResponse | null>();
+const locationCitiesCache = createAsyncValueCache<GingrLocation[]>();
+const reservationsCache = createAsyncValueCache<GingrReservation[]>();
+const invoicesCache = createAsyncValueCache<CurrentGingrInvoicesResponse | null>();
+const requestCatalogCache = createAsyncValueCache<GingrReservationRequestCatalog | null>();
+let reservationDetailCache: GingrReservationDetailResponse | null = null;
+const reservationDetailRequests = new Map<string, Promise<GingrReservationDetailResponse | null>>();
+let cacheGeneration = 0;
+
+async function readThroughCache<T>(
+  cache: AsyncValueCache<T>,
+  loader: () => Promise<T>,
+): Promise<T> {
+  if (cache.hasValue) {
+    return cache.value as T;
+  }
+
+  if (cache.request) {
+    return cache.request;
+  }
+
+  const requestGeneration = cacheGeneration;
+  const request = loader()
+    .then((value) => {
+      if (requestGeneration === cacheGeneration) {
+        cache.value = value;
+        cache.hasValue = true;
+      }
+      return value;
+    })
+    .finally(() => {
+      if (cache.request === request) {
+        cache.request = null;
+      }
+    });
+
+  cache.request = request;
+  return request;
+}
+
+export function clearGingrDiscoveryCache() {
+  cacheGeneration += 1;
+  for (const cache of [
+    petsCache,
+    ownerProfileCache,
+    locationCitiesCache,
+    reservationsCache,
+    invoicesCache,
+    requestCatalogCache,
+  ]) {
+    cache.hasValue = false;
+    cache.request = null;
+    cache.value = null;
+  }
+
+  reservationDetailCache = null;
+  reservationDetailRequests.clear();
+}
 
 export async function runGingrDiscovery<T = unknown>(request: GingrDiscoveryRequest) {
   const supabase = requireSupabase();
@@ -293,33 +421,41 @@ export async function runGingrDiscovery<T = unknown>(request: GingrDiscoveryRequ
 }
 
 export async function getCurrentGingrPets() {
-  const response = await runGingrDiscovery<CurrentGingrPetsResponse>({
-    action: "current-pets",
+  return readThroughCache(petsCache, async () => {
+    const response = await runGingrDiscovery<CurrentGingrPetsResponse>({
+      action: "current-pets",
+    });
+
+    const pets = response?.data?.pets ?? [];
+    const rawPetById = new Map(
+      (response?.data?.rawPets ?? [])
+        .map((rawPet) => {
+          const id = readRawString(rawPet, ["a_id", "id"]);
+
+          return id ? ([id, rawPet] as const) : null;
+        })
+        .filter((entry): entry is readonly [string, Record<string, unknown>] => Boolean(entry)),
+    );
+
+    return pets.map((pet) => ({
+      ...pet,
+      rawData: rawPetById.get(pet.id),
+    }));
   });
-
-  const pets = response?.data?.pets ?? [];
-  const rawPetById = new Map(
-    (response?.data?.rawPets ?? [])
-      .map((rawPet) => {
-        const id = readRawString(rawPet, ["a_id", "id"]);
-
-        return id ? ([id, rawPet] as const) : null;
-      })
-      .filter((entry): entry is readonly [string, Record<string, unknown>] => Boolean(entry)),
-  );
-
-  return pets.map((pet) => ({
-    ...pet,
-    rawData: rawPetById.get(pet.id),
-  }));
 }
 
 export async function getCurrentGingrOwnerProfile() {
-  const response = await runGingrDiscovery<CurrentGingrOwnerProfileResponse>({
-    action: "current-owner-profile",
-  });
+  return readThroughCache(ownerProfileCache, async () => {
+    const response = await runGingrDiscovery<CurrentGingrOwnerProfileResponse>({
+      action: "current-owner-profile",
+    });
 
-  return response?.data ?? null;
+    return response?.data ?? null;
+  });
+}
+
+export function getCachedCurrentGingrOwnerProfile() {
+  return ownerProfileCache.hasValue ? ownerProfileCache.value : undefined;
 }
 
 export async function linkCurrentGingrClient() {
@@ -331,36 +467,159 @@ export async function linkCurrentGingrClient() {
 }
 
 export async function getGingrLocationCities() {
-  const response = await runGingrDiscovery<GingrLocationCitiesResponse>({
-    action: "location-cities",
-  });
+  return readThroughCache(locationCitiesCache, async () => {
+    const response = await runGingrDiscovery<GingrLocationCitiesResponse>({
+      action: "location-cities",
+    });
 
-  return response?.data?.locations ?? [];
+    return response?.data?.locations ?? [];
+  });
+}
+
+export function getCachedGingrLocationCities() {
+  return locationCitiesCache.hasValue ? locationCitiesCache.value ?? [] : undefined;
 }
 
 export async function getCurrentGingrReservations() {
-  const response = await runGingrDiscovery<CurrentGingrReservationsResponse>({
-    action: "current-reservations",
-  });
+  return readThroughCache(reservationsCache, async () => {
+    const response = await runGingrDiscovery<CurrentGingrReservationsResponse>({
+      action: "current-reservations",
+    });
 
-  return response?.data?.reservations ?? [];
+    return response?.data?.reservations ?? [];
+  });
+}
+
+export async function getCurrentGingrInvoices() {
+  return readThroughCache(invoicesCache, async () => {
+    const response = await runGingrDiscovery<CurrentGingrInvoicesResponse>({
+      action: "list-invoices",
+    });
+
+    return response?.data ?? null;
+  });
+}
+
+export function getCachedCurrentGingrInvoices() {
+  return invoicesCache.hasValue ? invoicesCache.value : undefined;
 }
 
 export async function getGingrReservationDetail(reservationIds: string[]) {
-  const response = await runGingrDiscovery<GingrReservationDetailResponse>({
-    action: "reservation-detail",
-    reservationIds,
-  });
+  const normalizedIds = normalizeReservationIds(reservationIds);
+  const cachedDetail = selectCachedReservationDetail(normalizedIds);
 
-  return response?.data ?? null;
+  if (cachedDetail) {
+    return cachedDetail;
+  }
+
+  const key = normalizedIds.join("|");
+  const existingRequest = reservationDetailRequests.get(key);
+
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const requestGeneration = cacheGeneration;
+  const request = runGingrDiscovery<GingrReservationDetailResponse>({
+    action: "reservation-detail",
+    reservationIds: normalizedIds,
+  })
+    .then((response) => {
+      const detail = response?.data ?? null;
+      if (detail && requestGeneration === cacheGeneration) {
+        mergeReservationDetailCache(detail, normalizedIds);
+      }
+      return selectCachedReservationDetail(normalizedIds) ?? detail;
+    })
+    .finally(() => {
+      if (reservationDetailRequests.get(key) === request) {
+        reservationDetailRequests.delete(key);
+      }
+    });
+
+  reservationDetailRequests.set(key, request);
+  return request;
+}
+
+export function getCachedGingrReservationDetail(reservationIds: string[]) {
+  return selectCachedReservationDetail(normalizeReservationIds(reservationIds));
 }
 
 export async function getGingrReservationRequestCatalog() {
-  const response = await runGingrDiscovery<GingrReservationRequestCatalog>({
-    action: "request-catalog",
-  });
+  return readThroughCache(requestCatalogCache, async () => {
+    const response = await runGingrDiscovery<GingrReservationRequestCatalog>({
+      action: "request-catalog",
+    });
 
-  return response?.data ?? null;
+    return response?.data ?? null;
+  });
+}
+
+export function getCachedGingrReservationRequestCatalog() {
+  return requestCatalogCache.hasValue ? requestCatalogCache.value : undefined;
+}
+
+function normalizeReservationIds(reservationIds: string[]) {
+  return Array.from(new Set(reservationIds.map((id) => id.trim()).filter(Boolean))).sort();
+}
+
+function selectCachedReservationDetail(
+  reservationIds: string[],
+): GingrReservationDetailResponse | null {
+  if (!reservationDetailCache || reservationIds.length === 0) {
+    return null;
+  }
+
+  const requestedIds = new Set(reservationIds);
+  const reservations = reservationDetailCache.reservations.filter((reservation) =>
+    requestedIds.has(reservation.id),
+  );
+
+  if (reservations.length !== requestedIds.size) {
+    return null;
+  }
+
+  const estimatesByReservation = Object.fromEntries(
+    Object.entries(reservationDetailCache.estimatesByReservation ?? {}).filter(([id]) =>
+      requestedIds.has(id),
+    ),
+  );
+
+  return {
+    estimate:
+      reservationIds.length === 1
+        ? estimatesByReservation[reservationIds[0]] ?? null
+        : null,
+    estimatesByReservation,
+    ownerId: reservationDetailCache.ownerId,
+    reservations,
+  };
+}
+
+function mergeReservationDetailCache(
+  detail: GingrReservationDetailResponse,
+  requestedIds: string[],
+) {
+  const reservations = new Map(
+    (reservationDetailCache?.reservations ?? []).map((reservation) => [reservation.id, reservation]),
+  );
+
+  for (const reservation of detail.reservations) {
+    reservations.set(reservation.id, reservation);
+  }
+
+  reservationDetailCache = {
+    estimate: null,
+    estimatesByReservation: {
+      ...(reservationDetailCache?.estimatesByReservation ?? {}),
+      ...(detail.estimatesByReservation ?? {}),
+      ...(requestedIds.length === 1 && detail.estimate
+        ? { [requestedIds[0]]: detail.estimate }
+        : {}),
+    },
+    ownerId: detail.ownerId ?? reservationDetailCache?.ownerId ?? null,
+    reservations: Array.from(reservations.values()),
+  };
 }
 
 function readRawString(record: Record<string, unknown>, keys: string[]) {

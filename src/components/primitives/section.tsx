@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 import type { PropsWithChildren, ReactNode } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 
-import { spacing } from "../../theme";
+import { spacing, typography } from "../../theme";
 import { Text } from "./text";
 
 type SectionProps = PropsWithChildren<{
@@ -18,7 +18,7 @@ export function Section({ action, children, headerStyle, subtitle, title }: Sect
       {(title || subtitle || action) && (
         <View style={[styles.header, headerStyle]}>
           <View style={styles.copy}>
-            {title ? <Text variant="title">{title}</Text> : null}
+            {title ? <Text style={typography.sectionTitle}>{title}</Text> : null}
             {subtitle ? (
               <Text variant="caption" tone="muted" style={styles.subtitle}>
                 {subtitle}
@@ -35,7 +35,7 @@ export function Section({ action, children, headerStyle, subtitle, title }: Sect
 
 const styles = StyleSheet.create({
   section: {
-    gap: spacing.md,
+    gap: spacing[12],
   },
   header: {
     alignItems: "flex-end",
