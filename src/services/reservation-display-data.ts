@@ -26,7 +26,14 @@ export function clearReservationDisplayTotalsCache() {
   totalsRequest = null;
 }
 
-export async function preloadReservationDisplayData(dashboard: ClientDashboardData) {
+export async function preloadReservationDisplayData(
+  dashboard: ClientDashboardData,
+  options: { force?: boolean } = {},
+) {
+  if (options.force) {
+    clearReservationDisplayTotalsCache();
+  }
+
   if (totalsCache) {
     return totalsCache;
   }
@@ -38,7 +45,7 @@ export async function preloadReservationDisplayData(dashboard: ClientDashboardDa
   const requestGeneration = totalsGeneration;
   totalsRequest = Promise.all([
     getUpcomingReservationTotals(dashboard.upcomingReservations),
-    getPastReservationTotals(dashboard.pastReservations),
+    getPastReservationTotals(dashboard.pastReservations, Boolean(options.force)),
   ])
     .then(([upcoming, past]) => {
       const totals = { past, upcoming };
@@ -103,26 +110,15 @@ async function getUpcomingReservationTotals(reservations: ClientReservation[]) {
   return totals;
 }
 
-async function getPastReservationTotals(reservations: ClientReservation[]) {
+async function getPastReservationTotals(reservations: ClientReservation[], force = false) {
   const completedReservations = reservations.filter((reservation) => !isCancelledReservation(reservation));
-  const invoicesResponse = await getCurrentGingrInvoices().catch(() => null);
+  const invoicesResponse = await getCurrentGingrInvoices({ force }).catch(() => null);
   const invoices = deduplicateInvoices(invoicesResponse?.lookups?.flatMap((lookup) => lookup.matchingOwnerInvoices) ?? []);
   const totals: Record<string, string> = {};
   for (const reservation of completedReservations) {
     const reservationIds = new Set(splitReservationIds(reservation.id));
     const matching = invoices.filter((invoice) => getGingrInvoiceReservationIds(invoice).some((id) => reservationIds.has(id)));
     const total = sumMoney(matching.map((invoice) => invoice.total));
-    if (total) totals[reservation.id] = total;
-  }
-
-  const unmatchedReservations = completedReservations.filter((reservation) => !totals[reservation.id]);
-  const unmatchedIds = unmatchedReservations.flatMap((reservation) => splitReservationIds(reservation.id));
-  const detail = unmatchedIds.length > 0 ? await getGingrReservationDetail(unmatchedIds).catch(() => null) : null;
-  const detailById = new Map(detail?.reservations.map((reservation) => [reservation.id, reservation]) ?? []);
-  for (const reservation of unmatchedReservations) {
-    const total = sumMoney(splitReservationIds(reservation.id).map((id) =>
-      detail?.estimatesByReservation?.[id]?.totalDue ?? detailById.get(id)?.finalRate ?? null,
-    ));
     if (total) totals[reservation.id] = total;
   }
   return totals;

@@ -101,7 +101,10 @@ function PetProfileContent({ pet }: { pet: Pet }) {
       <AppSection title="Vaccination Records">
         <AppCard style={styles.card}>
           <VaccinationSummary pet={pet} />
-          <ImmunizationList immunizations={pet.immunizations ?? []} />
+          <ImmunizationList
+            immunizations={pet.immunizations ?? []}
+            required={vaccinationStatus !== "not_required"}
+          />
         </AppCard>
       </AppSection>
 
@@ -134,28 +137,30 @@ function PetProfileContent({ pet }: { pet: Pet }) {
 }
 
 function VaccinationPill({ status }: { status: ReturnType<typeof getVaccinationStatus> }) {
-  const label = status === "current" ? "Up to date" : status === "expired" ? "Expired" : "Records needed";
-  const color = status === "current" ? colors.success : status === "expired" ? colors.error : colors.warning;
-  const icon = status === "current" ? "check" : status === "expired" ? "x" : "info";
+  const label = status === "not_required" ? "Not required" : status === "current" ? "Up to date" : status === "expired" ? "Expired" : "Records needed";
+  const color = status === "not_required" ? colors.textSecondary : status === "current" ? colors.success : status === "expired" ? colors.error : colors.warning;
+  const icon = status === "current" || status === "not_required" ? "check" : status === "expired" ? "x" : "info";
 
-  return <View style={[styles.statusPill, status === "current" ? styles.currentPill : status === "expired" ? styles.expiredPill : styles.missingPill]}><Text style={[styles.pillText, { color }]}>{label}</Text><Icon color={color} name={icon} size={12} /></View>;
+  return <View style={[styles.statusPill, status === "not_required" ? styles.neutralPill : status === "current" ? styles.currentPill : status === "expired" ? styles.expiredPill : styles.missingPill]}><Text style={[styles.pillText, { color }]}>{label}</Text><Icon color={color} name={icon} size={12} /></View>;
 }
 
 function VaccinationSummary({ pet }: { pet: Pet }) {
   const status = getVaccinationStatus(pet);
-  const title = status === "current" ? "Vaccinations are current" : status === "expired" ? "Vaccinations need renewal" : "Vaccination records needed";
-  const body = status === "current"
+  const title = status === "not_required" ? "Vaccinations are not required" : status === "current" ? "Vaccinations are current" : status === "expired" ? "Vaccinations need renewal" : "Vaccination records needed";
+  const body = status === "not_required"
+    ? "Vaccination records are only required for cats and dogs."
+    : status === "current"
     ? pet.nextImmunizationExpiration ? `Current through ${formatIsoDate(pet.nextImmunizationExpiration)}.` : "All listed vaccinations are current."
     : status === "expired" ? "One or more required vaccinations have expired." : "No current expiration information is available.";
-  const color = status === "current" ? colors.success : status === "expired" ? colors.error : colors.warning;
-  const icon = status === "current" ? "check" : status === "expired" ? "x" : "info";
+  const color = status === "not_required" ? colors.textSecondary : status === "current" ? colors.success : status === "expired" ? colors.error : colors.warning;
+  const icon = status === "current" || status === "not_required" ? "check" : status === "expired" ? "x" : "info";
 
-  return <View style={[styles.vaccinationSummary, status === "current" ? styles.currentSummary : status === "expired" ? styles.expiredSummary : styles.missingSummary]}><View style={[styles.summaryIcon, { backgroundColor: color }]}><Icon color={colors.textInverse} name={icon} size={15} /></View><View style={styles.summaryCopy}><Text style={styles.summaryTitle}>{title}</Text><Text style={styles.summaryBody}>{body}</Text></View></View>;
+  return <View style={[styles.vaccinationSummary, status === "not_required" ? styles.neutralSummary : status === "current" ? styles.currentSummary : status === "expired" ? styles.expiredSummary : styles.missingSummary]}><View style={[styles.summaryIcon, { backgroundColor: color }]}><Icon color={colors.textInverse} name={icon} size={15} /></View><View style={styles.summaryCopy}><Text style={styles.summaryTitle}>{title}</Text><Text style={styles.summaryBody}>{body}</Text></View></View>;
 }
 
-function ImmunizationList({ immunizations }: { immunizations: PetImmunization[] }) {
+function ImmunizationList({ immunizations, required }: { immunizations: PetImmunization[]; required: boolean }) {
   if (immunizations.length === 0) {
-    return <Text style={typography.bodySecondary}>No vaccination records are listed.</Text>;
+    return <Text style={typography.bodySecondary}>{required ? "No vaccination records are listed." : "No vaccination records are required for this pet."}</Text>;
   }
 
   return <View style={styles.immunizationList}>{immunizations.map((immunization, index) => {
@@ -231,6 +236,7 @@ const styles = StyleSheet.create({
   currentPill: { backgroundColor: colors.successSoft },
   expiredPill: { backgroundColor: colors.errorSoft },
   missingPill: { backgroundColor: colors.warningSoft },
+  neutralPill: { backgroundColor: colors.surfaceMuted },
   warmPill: { backgroundColor: colors.goldSoft, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   goldPill: { backgroundColor: colors.burgundy, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   goldPillText: { color: colors.textInverse, fontFamily: fonts.bodyMedium, fontSize: 12 },
@@ -244,6 +250,7 @@ const styles = StyleSheet.create({
   currentSummary: { backgroundColor: colors.successSoft },
   expiredSummary: { backgroundColor: colors.errorSoft },
   missingSummary: { backgroundColor: colors.warningSoft },
+  neutralSummary: { backgroundColor: colors.surfaceMuted },
   summaryIcon: { alignItems: "center", borderRadius: 16, height: 32, justifyContent: "center", width: 32 },
   summaryCopy: { flex: 1, gap: 2 },
   summaryTitle: { fontFamily: fonts.bodySemiBold, fontSize: 13 },

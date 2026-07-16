@@ -301,7 +301,24 @@ export async function createReservationRequest(request: ReservationRequestInsert
 
   clearClientDashboardCache();
 
-  return data;
+  try {
+    await sendReservationRequestNotification(data.id);
+    return { notificationSent: true, request: data };
+  } catch (error) {
+    console.warn("Reservation request was saved, but reception email failed.", error);
+    return { notificationSent: false, request: data };
+  }
+}
+
+export async function sendReservationRequestNotification(requestId: string) {
+  const { data, error } = await requireSupabase().functions.invoke<{ sent?: boolean }>(
+    "reservation-request-notification",
+    { body: { requestId } },
+  );
+
+  if (error || !data?.sent) {
+    throw new Error("Reception email could not be sent.");
+  }
 }
 
 export async function cancelReservationRequest(requestId: string) {

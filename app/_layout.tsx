@@ -12,7 +12,8 @@ import { useFonts } from "expo-font";
 import { Tabs } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { StatusBarStyle } from "expo-status-bar";
-import { Linking, View } from "react-native";
+import { Alert, Linking, View } from "react-native";
+import * as React from "react";
 
 import { colors, fonts, layout, shadows, spacing } from "@/theme";
 import { Button, Icon, Text } from "@/components/primitives";
@@ -168,10 +169,29 @@ function AccessPendingScreen({
 }: {
   onSignOut: () => Promise<void>;
 }) {
+  const [isSwitchingAccount, setIsSwitchingAccount] = React.useState(false);
   const supportEmailUrl =
     "mailto:support@lechateaupetresort.com?subject=App%20Support%20Request";
   const defaultMessage =
     "Please use the email we have on file, or contact support if the problem continues.";
+
+  async function handleSwitchAccount() {
+    if (isSwitchingAccount) {
+      return;
+    }
+
+    setIsSwitchingAccount(true);
+
+    try {
+      await onSignOut();
+    } catch {
+      Alert.alert(
+        "Unable to switch accounts",
+        "We couldn't clear this login. Check your connection and try again.",
+      );
+      setIsSwitchingAccount(false);
+    }
+  }
 
   return (
     <View
@@ -190,7 +210,12 @@ function AccessPendingScreen({
       <Text style={{ textAlign: "center" }} tone="secondary" variant="body">
         {defaultMessage}
       </Text>
-      <Button onPress={onSignOut} title="Use a Different Email" variant="secondary" />
+      <Button
+        disabled={isSwitchingAccount}
+        onPress={() => void handleSwitchAccount()}
+        title={isSwitchingAccount ? "Switching…" : "Use a Different Email"}
+        variant="secondary"
+      />
       <Button
         onPress={() => {
           void Linking.openURL(supportEmailUrl);

@@ -33,9 +33,13 @@ export type ReservationRequest = {
   id: string;
   location: string | null;
   notes: string | null;
+  notification_error: string | null;
+  notification_status: "pending" | "sent" | "failed";
+  notified_at: string | null;
   optional_services: string[];
   reservation_type: string | null;
   selected_pet_ids: string[];
+  selected_pet_names: string[];
   spa_service: string | null;
   spa_upgrades: string[];
   start_date: string;
@@ -59,6 +63,7 @@ export type ReservationRequestInsert = {
   optional_services?: string[];
   reservation_type?: string | null;
   selected_pet_ids: string[];
+  selected_pet_names?: string[];
   spa_service?: string | null;
   spa_upgrades?: string[];
   start_date: string;

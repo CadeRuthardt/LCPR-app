@@ -63,3 +63,23 @@ Supported discovery actions:
 - `current-client-snapshot`
 
 Client-specific lookups use the signed-in Supabase user's email.
+
+## Reservation Request Emails
+
+New reservation requests call the authenticated `reservation-request-notification` Edge Function.
+The function reloads the customer-owned request from Supabase and emails
+`support@lechateaupetresort.com` through Resend.
+
+After verifying a sending domain in Resend, configure the server-side secrets:
+
+```bash
+supabase secrets set RESEND_API_KEY=your-resend-api-key
+supabase secrets set RESERVATION_REQUEST_FROM_EMAIL="Le Chateau Reservations <reservations@your-verified-domain>"
+```
+
+Apply migrations and deploy the function:
+
+```bash
+supabase db push
+supabase functions deploy reservation-request-notification
+```

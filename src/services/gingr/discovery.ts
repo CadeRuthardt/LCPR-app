@@ -17,6 +17,7 @@ export type GingrDiscoveryAction =
   | "link-current-client"
   | "reservation-detail"
   | "current-reservations"
+  | "vip-camera-access"
   | "reservation-detail-test"
   | "estimate-test"
   | "current-client-snapshot";
@@ -27,6 +28,8 @@ export type GingrDiscoveryRequest = {
   reservationId?: string | number;
   reservationIds?: Array<string | number>;
   reservationTypeId?: string | number;
+  cameraLocationId?: string;
+  vipAccessCode?: string;
 };
 
 export type GingrDiscoveryResponse<T = unknown> = {
@@ -151,10 +154,25 @@ export type CurrentGingrReservationsResponse = {
   reservations: GingrReservation[];
 };
 
+export type VipCameraAccessResponse = {
+  allowed: boolean;
+  camera?: {
+    id: string;
+    title: string;
+    url: string;
+  };
+  message?: string;
+};
+
 export type GingrInvoiceSummary = {
+  chargeDetails?: GingrInvoiceChargeSummary[];
   date: string | null;
+  depositsTotal?: string | null;
   id: string | null;
   ownerId: string | null;
+  paymentDetails?: GingrInvoicePaymentSummary[];
+  paymentsTotal?: string | null;
+  remainingDue?: string | null;
   reservationId: string | null;
   reservationIds?: string[];
   reservationReferences?: Array<{ key: string; path: string; value: string }>;
@@ -163,6 +181,25 @@ export type GingrInvoiceSummary = {
   transactionFieldKeys?: string[];
   transactionItems?: Array<Record<string, unknown>>;
   transactionLookupError?: string | null;
+};
+
+export type GingrInvoicePaymentSummary = {
+  amount: string | null;
+  date: string | null;
+  description: string | null;
+  id: string | null;
+  isDeposit: boolean;
+  method: string | null;
+  status: string | null;
+};
+
+export type GingrInvoiceChargeSummary = {
+  amount: string | null;
+  animalName: string | null;
+  description: string | null;
+  id: string | null;
+  quantity: string | null;
+  reservationId: string | null;
 };
 
 export type CurrentGingrInvoicesResponse = {
@@ -490,7 +527,21 @@ export async function getCurrentGingrReservations() {
   });
 }
 
-export async function getCurrentGingrInvoices() {
+export async function verifyVipCameraAccess(vipAccessCode: string, cameraLocationId: string) {
+  const response = await runGingrDiscovery<VipCameraAccessResponse>({
+    action: "vip-camera-access",
+    cameraLocationId,
+    vipAccessCode,
+  });
+
+  return response?.data ?? { allowed: false };
+}
+
+export async function getCurrentGingrInvoices(options: { force?: boolean } = {}) {
+  if (options.force) {
+    clearCurrentGingrInvoicesCache();
+  }
+
   return readThroughCache(invoicesCache, async () => {
     const response = await runGingrDiscovery<CurrentGingrInvoicesResponse>({
       action: "list-invoices",
@@ -498,6 +549,13 @@ export async function getCurrentGingrInvoices() {
 
     return response?.data ?? null;
   });
+}
+
+function clearCurrentGingrInvoicesCache() {
+  cacheGeneration += 1;
+  invoicesCache.hasValue = false;
+  invoicesCache.request = null;
+  invoicesCache.value = null;
 }
 
 export function getCachedCurrentGingrInvoices() {

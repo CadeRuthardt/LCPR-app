@@ -25,16 +25,17 @@ export function ReservationsRedesignScreen() {
   const [invoiceTotals,setInvoiceTotals]=React.useState<Record<string,string>>(cachedTotals?.past??{});
   const [invoiceTotalsLoading,setInvoiceTotalsLoading]=React.useState(!cachedTotals&&(cached?.pastReservations.some((reservation)=>!reservation.status.toLowerCase().includes("cancel"))??false));
   const [loading,setLoading]=React.useState(!cached); const [error,setError]=React.useState<string|null>(null);
+  const [refreshing,setRefreshing]=React.useState(false);
   const [cancellingRequestId,setCancellingRequestId]=React.useState<string|null>(null);
-  const load=React.useCallback(()=>{setError(null);void getCurrentClientDashboardData().then((next)=>{
+  const load=React.useCallback((force=false)=>{setError(null);if(force)setRefreshing(true);void getCurrentClientDashboardData({force}).then((next)=>{
     setData(next);
     setReservationTotalsLoading(next.upcomingReservations.length>0);
     setInvoiceTotalsLoading(next.pastReservations.some((reservation)=>!reservation.status.toLowerCase().includes("cancel")));
-    void preloadReservationDisplayData(next)
+    void preloadReservationDisplayData(next,{force})
       .then((totals)=>{setReservationTotals(totals.upcoming);setInvoiceTotals(totals.past);})
       .catch(()=>{setReservationTotals({});setInvoiceTotals({});})
-      .finally(()=>{setReservationTotalsLoading(false);setInvoiceTotalsLoading(false);});
-  }).catch(()=>setError("We couldn’t refresh your reservations." )).finally(()=>setLoading(false));},[]); useFocusEffect(load);
+      .finally(()=>{setReservationTotalsLoading(false);setInvoiceTotalsLoading(false);setRefreshing(false);});
+  }).catch(()=>{setError("We couldn’t refresh your reservations." );setRefreshing(false);}).finally(()=>setLoading(false));},[]); useFocusEffect(React.useCallback(()=>{load(false);},[load]));
   const confirmRequestCancellation=React.useCallback((request:ReservationRequest)=>{
     Alert.alert(
       "Cancel reservation request?",
@@ -65,7 +66,7 @@ export function ReservationsRedesignScreen() {
   const petsById=new Map(data.pets.map((pet)=>[pet.id,pet])); const petsByName=new Map(data.pets.map((pet)=>[pet.name.trim().toLowerCase(),pet]));
   const upcomingRequests=data.requests.filter((request)=>["submitted","under_review","action_required"].includes(request.status));
   const completedPastReservations=data.pastReservations.filter((reservation)=>!isCancelledReservation(reservation));
-  return <View style={styles.root}><BrandHeader/><Screen contentStyle={styles.content} onRefresh={load} refreshing={false} topSafeArea={false}>
+  return <View style={styles.root}><BrandHeader/><Screen contentStyle={styles.content} onRefresh={()=>load(true)} refreshing={refreshing} topSafeArea={false}>
     <View style={styles.heading}><View style={styles.headingCopy}><Text style={typography.screenTitle}>Reservations</Text><Text style={typography.bodySecondary}>Upcoming and past stays for your pets.</Text></View><Pressable onPress={()=>router.push("/request-reservation")} style={styles.newRequest}><View style={styles.plus}><Icon color={colors.textInverse} name="plus" size={19}/></View><Text style={styles.newRequestText}>New Request</Text></Pressable></View>
     <View style={styles.tabs}>{(["Upcoming","Past"] as const).map((item)=><Pressable key={item} onPress={()=>setTab(item)} style={[styles.tab,tab===item&&styles.tabActive]}><Text style={[styles.tabText,tab===item&&styles.tabTextActive]}>{item}</Text></Pressable>)}</View>
     {loading?<><LoadingSkeleton/><LoadingSkeleton/></>:error?<ErrorState message={error} onRetry={load}/>:tab==="Upcoming"?<View style={styles.list}><Text style={styles.listLabel}>UPCOMING REQUESTS</Text>{upcomingRequests.map((request)=><RequestRow cancelling={cancellingRequestId===request.id} key={request.id} onCancel={()=>confirmRequestCancellation(request)} request={request} pets={request.selected_pet_ids.map((id)=>petsById.get(id)).filter((pet):pet is Pet=>Boolean(pet))}/>)}{data.upcomingReservations.map((reservation)=><StayRow key={reservation.id} reservation={reservation} pets={reservation.petNames.map((name)=>petsByName.get(name.trim().toLowerCase())).filter((pet):pet is Pet=>Boolean(pet))} total={reservationTotals[reservation.id]} totalLoading={reservationTotalsLoading}/>)}{upcomingRequests.length+data.upcomingReservations.length===0?<EmptyState icon="calendar" title="No upcoming stays" body="Confirmed reservations and requests will appear here." actionLabel="New Request" onAction={()=>router.push("/request-reservation")}/>:null}</View>:<View style={styles.list}><Text style={styles.listLabel}>PAST STAYS</Text>{completedPastReservations.map((reservation)=><StayRow key={reservation.id} reservation={reservation} pets={reservation.petNames.map((name)=>petsByName.get(name.trim().toLowerCase())).filter((pet):pet is Pet=>Boolean(pet))} total={invoiceTotals[reservation.id]} totalLoading={invoiceTotalsLoading} past/>)}{completedPastReservations.length===0?<EmptyState icon="calendar" title="No past stays" body="Completed stays will appear here."/>:null}</View>}

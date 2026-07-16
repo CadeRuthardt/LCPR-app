@@ -15,6 +15,7 @@ type DiscoveryAction =
   | "link-current-client"
   | "reservation-detail"
   | "current-reservations"
+  | "vip-camera-access"
   | "reservation-detail-test"
   | "estimate-test"
   | "current-client-snapshot";
@@ -25,6 +26,8 @@ type DiscoveryRequest = {
   locationId?: string | number;
   reservationId?: string | number;
   reservationIds?: Array<string | number>;
+  cameraLocationId?: string;
+  vipAccessCode?: string;
 };
 
 type AuthUser = {
@@ -56,6 +59,66 @@ const corsHeaders = {
 const sensitiveKeyPattern =
   /(api[-_]?key|authorization|bearer|card|cc_|credit|password|secret|ssn|token)/i;
 const gingrRequestTimeoutMs = 8000;
+
+type VipCameraAccessConfig = {
+  camera: {
+    id: string;
+    title: string;
+    url: string;
+  };
+  locationId: string;
+};
+
+const vipCameraAccessByLocationAndCode: Record<string, VipCameraAccessConfig> = {
+  "amarillo:P110-CASTLE": {
+    camera: {
+      id: "amarillo-e110-vip",
+      title: "E110 VIP",
+      url: "https://idogcam.com/idogcamviewer.php?id=14230",
+    },
+    locationId: "amarillo",
+  },
+  "amarillo:P210-PAW": {
+    camera: {
+      id: "amarillo-e210-vip",
+      title: "E210 VIP",
+      url: "https://idogcam.com/idogcamviewer.php?id=1575",
+    },
+    locationId: "amarillo",
+  },
+  "amarillo:P301-CHATEAU": {
+    camera: {
+      id: "amarillo-e301-vip",
+      title: "E301 VIP",
+      url: "https://idogcam.com/idogcamviewer.php?id=1580",
+    },
+    locationId: "amarillo",
+  },
+  "wichita-falls:P110-CASTLE": {
+    camera: {
+      id: "wichita-falls-vip-110",
+      title: "VIP 110",
+      url: "https://idogcam.com/idogcamviewer.php?id=16210",
+    },
+    locationId: "wichita-falls",
+  },
+  "wichita-falls:P210-PAW": {
+    camera: {
+      id: "wichita-falls-vip-210",
+      title: "VIP 210",
+      url: "https://idogcam.com/idogcamviewer.php?id=16211",
+    },
+    locationId: "wichita-falls",
+  },
+  "wichita-falls:P310-CHATEAU": {
+    camera: {
+      id: "wichita-falls-vip-310",
+      title: "VIP 310",
+      url: "https://idogcam.com/idogcamviewer.php?id=16212",
+    },
+    locationId: "wichita-falls",
+  },
+};
 
 function getConfiguredGingrClients(): GingrClient[] {
   const clients = [
@@ -174,7 +237,11 @@ Deno.serve(async (request) => {
     if (action === "list-invoices") {
       return jsonResponse({
         action,
-        data: await buildCurrentOwnerInvoices(gingrBaseUrl, primaryGingrClient.apiKey, authResult.user),
+        data: await buildCurrentOwnerInvoicesForClients(
+          gingrBaseUrl,
+          gingrClients,
+          authResult.user,
+        ),
       });
     }
 
@@ -238,6 +305,23 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (action === "vip-camera-access") {
+      if (!body.vipAccessCode?.trim() || !body.cameraLocationId?.trim()) {
+        return jsonResponse({ error: "VIP access code and camera location are required." }, 400);
+      }
+
+      return jsonResponse({
+        action,
+        data: await verifyVipCameraAccess(
+          gingrBaseUrl,
+          gingrClients,
+          authResult.user,
+          body.vipAccessCode,
+          body.cameraLocationId,
+        ),
+      });
+    }
+
     if (action === "reservation-detail") {
       return jsonResponse({
         action,
@@ -274,7 +358,7 @@ Deno.serve(async (request) => {
     return jsonResponse(
       {
         error:
-          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, owner-form, owner-custom-field-search, current-owner, current-owner-profile, link-current-client, current-pets, current-reservations, reservation-detail, reservation-detail-test, estimate-test, or current-client-snapshot.",
+          "Unsupported discovery action. Use locations, location-cities, reservation-types, species, services-by-type, request-catalog, list-invoices, report-card-files, owner-form, owner-custom-field-search, current-owner, current-owner-profile, link-current-client, current-pets, current-reservations, vip-camera-access, reservation-detail, reservation-detail-test, estimate-test, or current-client-snapshot.",
       },
       400,
     );
@@ -831,6 +915,61 @@ async function buildCurrentReservationsForClients(
       reservationCount: reservations.length,
     },
   };
+}
+
+async function verifyVipCameraAccess(
+  baseUrl: string,
+  clients: GingrClient[],
+  user: AuthUser,
+  accessCode: string,
+  requestedLocationId: string,
+) {
+  const denial = {
+    allowed: false,
+    message: "VIP access requires a valid suite code and an active checked-in reservation at this resort.",
+  };
+  const normalizedCode = accessCode.trim().toUpperCase();
+  const normalizedRequestedLocationId = normalizeCameraLocationId(requestedLocationId);
+  const access = vipCameraAccessByLocationAndCode[
+    `${normalizedRequestedLocationId}:${normalizedCode}`
+  ];
+
+  if (!access || access.locationId !== normalizedRequestedLocationId) {
+    return denial;
+  }
+
+  const currentReservations = await buildCurrentReservationsForClients(baseUrl, clients, user);
+  const hasCheckedInReservation = currentReservations.reservations.some((reservation) =>
+    reservation.status.trim().toLowerCase() === "checked in" &&
+    normalizeCameraLocationId(reservation.location ?? "") === access.locationId
+  );
+
+  if (!hasCheckedInReservation) {
+    return denial;
+  }
+
+  return {
+    allowed: true,
+    camera: access.camera,
+  };
+}
+
+function normalizeCameraLocationId(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+  if (normalized.includes("amarillo")) {
+    return "amarillo";
+  }
+
+  if (normalized.includes("wichitafalls") || normalized === "wf") {
+    return "wichita-falls";
+  }
+
+  if (normalized.includes("newbraunfels") || normalized === "nb") {
+    return "new-braunfels";
+  }
+
+  return normalized;
 }
 
 function normalizeKnownLocation(location: string | null, fallbackCity: string) {
@@ -1700,6 +1839,15 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
   const ownerReservationsResponse = await gingrPost(baseUrl, apiKey, "/api/v1/reservations_by_owner", {
     id: String(ownerId),
   });
+  const ownerReservationIds = new Set(
+    unwrapGingrArray(ownerReservationsResponse)
+      .map((reservation) =>
+        reservation && typeof reservation === "object" && !Array.isArray(reservation)
+          ? readAnyString(reservation as Record<string, unknown>, ["r_id", "reservation_id", "id"])
+          : null
+      )
+      .filter((reservationId): reservationId is string => Boolean(reservationId)),
+  );
   const reservationMonthLookups = buildReservationMonthInvoiceLookups(ownerReservationsResponse);
 
   const lookupVariants = [
@@ -1739,7 +1887,14 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
 
   const lookups = await Promise.all(
     lookupVariants.map(async (variant) => {
-      const result = await findInvoicesForOwner(baseUrl, apiKey, variant.params, String(ownerId), user.email);
+      const result = await findInvoicesForOwner(
+        baseUrl,
+        apiKey,
+        variant.params,
+        String(ownerId),
+        user.email,
+        ownerReservationIds,
+      );
 
       return {
         label: variant.label,
@@ -1766,7 +1921,13 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
     await Promise.all(invoiceIds.map(async (invoiceId) => {
       try {
         const transaction = await gingrPost(baseUrl, apiKey, "/api/v1/transaction", { id: invoiceId });
+        const settlement = collectTransactionSettlementSummary(transaction);
         return [invoiceId, {
+          chargeDetails: collectTransactionChargeSummaries(transaction),
+          depositsTotal: settlement.depositsTotal,
+          paymentDetails: collectTransactionPaymentSummaries(transaction),
+          paymentsTotal: settlement.paymentsTotal,
+          remainingDue: settlement.remainingDue,
           reservationIds: collectReservationIds(transaction),
           reservationReferences: collectReservationReferences(transaction),
           transactionItems: collectTransactionItemSummaries(transaction),
@@ -1775,6 +1936,26 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
         }] as const;
       } catch (error) {
         return [invoiceId, {
+          chargeDetails: [] as Array<{
+            amount: string | null;
+            animalName: string | null;
+            description: string | null;
+            id: string | null;
+            quantity: string | null;
+            reservationId: string | null;
+          }>,
+          depositsTotal: null,
+          paymentDetails: [] as Array<{
+            amount: string | null;
+            date: string | null;
+            description: string | null;
+            id: string | null;
+            isDeposit: boolean;
+            method: string | null;
+            status: string | null;
+          }>,
+          paymentsTotal: null,
+          remainingDue: null,
           reservationIds: [] as string[],
           reservationReferences: [] as Array<{ key: string; path: string; value: string }>,
           transactionItems: [] as Array<Record<string, unknown>>,
@@ -1797,7 +1978,92 @@ async function buildCurrentOwnerInvoices(baseUrl: string, apiKey: string, user: 
     ownerId: String(ownerId),
     lookups: enrichedLookups,
     note:
-      "list_invoices is a global/date-based Gingr endpoint. This diagnostic returns only signed-in owner matches plus non-sensitive counts/field keys.",
+      "list_invoices is a global/date-based Gingr endpoint. This diagnostic returns invoices matched to the signed-in owner or their reservations, plus non-sensitive counts/field keys.",
+  };
+}
+
+async function buildCurrentOwnerInvoicesForClients(
+  baseUrl: string,
+  clients: GingrClient[],
+  user: AuthUser,
+) {
+  const dedicatedClients = clients.filter((client) => client.code !== "LEGACY");
+  const preferredClients = dedicatedClients.length > 0 ? dedicatedClients : clients;
+  const uniqueClients = Array.from(
+    new Map(preferredClients.map((client) => [client.apiKey, client])).values(),
+  );
+  const clientResults = await Promise.all(
+    uniqueClients.map(async (client) => {
+      const startedAt = Date.now();
+
+      try {
+        const result = await buildCurrentOwnerInvoices(baseUrl, client.apiKey, user);
+        return {
+          client,
+          durationMs: Date.now() - startedAt,
+          result,
+        };
+      } catch (error) {
+        return {
+          client,
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : "Gingr invoice lookup failed.",
+        };
+      }
+    }),
+  );
+  const ownerIds = new Set<string>();
+  const lookups: Array<Record<string, unknown>> = [];
+  const debug: Array<Record<string, unknown>> = [];
+
+  for (const clientResult of clientResults) {
+    if ("error" in clientResult) {
+      debug.push({
+        city: clientResult.client.city,
+        code: clientResult.client.code,
+        durationMs: clientResult.durationMs,
+        error: clientResult.error,
+        invoiceCount: 0,
+      });
+      continue;
+    }
+
+    const { client, result } = clientResult;
+    if (result.ownerId) {
+      ownerIds.add(String(result.ownerId));
+    }
+
+    const clientLookups = Array.isArray(result.lookups) ? result.lookups : [];
+    const invoiceCount = clientLookups.reduce(
+      (count, lookup) => count + lookup.matchingOwnerInvoices.length,
+      0,
+    );
+
+    lookups.push(...clientLookups.map((lookup) => ({
+      ...lookup,
+      label: `${client.code}:${lookup.label}`,
+      sourceClientCode: client.code,
+      sourceLocation: client.city,
+    })));
+    debug.push({
+      city: client.city,
+      code: client.code,
+      durationMs: clientResult.durationMs,
+      invoiceCount,
+      ownerId: result.ownerId,
+    });
+  }
+
+  return {
+    ownerId: Array.from(ownerIds)[0] ?? null,
+    ownerIds: Array.from(ownerIds),
+    lookups,
+    debug: {
+      clients: debug,
+      configuredClients: uniqueClients.map((client) => ({ city: client.city, code: client.code })),
+    },
+    note:
+      "Invoice lookups run independently for each configured Gingr location and merge signed-in owner or reservation matches.",
   };
 }
 
@@ -2561,11 +2827,12 @@ function normalizeReservation(value: unknown, locationById = new Map<string, str
   return {
     id,
     animalNames: readReservationAnimalNames(reservation),
-    checkInAt: readAnyString(reservation, ["check_in_stamp_formatted", "checkin_stamp_formatted"]),
-    checkOutAt: readAnyString(reservation, [
-      "check_out_stamp_formatted",
-      "checkout_stamp_formatted",
-    ]),
+    checkInAt:
+      formatGingrTimestamp(readAnyString(reservation, ["check_in_stamp", "checkin_stamp"])) ??
+      readAnyString(reservation, ["check_in_stamp_formatted", "checkin_stamp_formatted"]),
+    checkOutAt:
+      formatGingrTimestamp(readAnyString(reservation, ["check_out_stamp", "checkout_stamp"])) ??
+      readAnyString(reservation, ["check_out_stamp_formatted", "checkout_stamp_formatted"]),
     confirmedAt: formatGingrTimestamp(readAnyString(reservation, ["confirmed_stamp"])),
     endDate: readAnyDate(reservation, [
       "end_date",
@@ -3224,6 +3491,7 @@ async function findInvoicesForOwner(
   baseParams: Record<string, string>,
   ownerId: string,
   ownerEmail?: string,
+  ownerReservationIds = new Set<string>(),
 ) {
   const maxPages = 10;
   const matchingInvoices: unknown[] = [];
@@ -3250,7 +3518,10 @@ async function findInvoicesForOwner(
     totalReturned += invoices.length;
     sampleFieldKeys = sampleFieldKeys.length > 0 ? sampleFieldKeys : readObjectKeys(invoices[0]);
     matchingInvoices.push(
-      ...invoices.filter((invoice) => invoiceMatchesOwner(invoice, ownerId, ownerEmail)),
+      ...invoices.filter((invoice) =>
+        invoiceMatchesOwner(invoice, ownerId, ownerEmail) ||
+        invoiceMatchesReservation(invoice, ownerReservationIds)
+      ),
     );
 
     if (matchingInvoices.length >= 20) {
@@ -3268,6 +3539,14 @@ async function findInvoicesForOwner(
     sampleFieldKeys,
     totalReturned,
   };
+}
+
+function invoiceMatchesReservation(value: unknown, reservationIds: Set<string>) {
+  if (reservationIds.size === 0) {
+    return false;
+  }
+
+  return collectReservationIds(value).some((reservationId) => reservationIds.has(reservationId));
 }
 
 function invoiceMatchesOwner(value: unknown, ownerId: string, ownerEmail?: string) {
@@ -3415,6 +3694,177 @@ function collectTransactionItemSummaries(value: unknown, path = "root", depth = 
 
   return Object.entries(value as Record<string, unknown>)
     .flatMap(([key, nestedValue]) => collectTransactionItemSummaries(nestedValue, `${path}.${key}`, depth + 1))
+    .slice(0, 60);
+}
+
+function collectTransactionPaymentSummaries(
+  value: unknown,
+  path = "root",
+  depth = 0,
+): Array<{
+  amount: string | null;
+  date: string | null;
+  description: string | null;
+  id: string | null;
+  isDeposit: boolean;
+  method: string | null;
+  status: string | null;
+}> {
+  if (depth > 8 || !value || typeof value !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item, index) =>
+        collectTransactionPaymentSummaries(item, `${path}[${index}]`, depth + 1)
+      )
+      .slice(0, 40);
+  }
+
+  const record = value as Record<string, unknown>;
+  const description = readAnyString(record, ["description", "payment_description", "memo", "notes"]);
+  const amount = readAnyString(record, ["payment_amount", "paid_amount", "p_amount", "amount", "total"]);
+  const isAggregatePayment = Boolean(
+    description && /^(?:(?:total\s+)?(?:payments?|deposits?)|remaining due|balance due)$/i.test(description.trim()),
+  );
+  const date = readAnyDate(record, ["payment_date", "p_date", "date", "created_at", "create_stamp", "created"]);
+  const id = readAnyString(record, ["payment_id", "transaction_payment_id", "p_id", "id"]);
+  const status = readDeepAnyString(record, ["deposit_status", "payment_status", "status"]);
+  const nestedMethod =
+    readRecord(record, "payment_method") ??
+    readRecord(record, "method") ??
+    readRecord(record, "tender");
+  const method =
+    readAnyString(record, ["payment_method_name", "payment_method", "method_name", "method", "tender_name", "tender", "payment_type"]) ??
+    (nestedMethod ? readAnyString(nestedMethod, ["name", "label", "type"]) : null);
+  const hasPaymentSpecificField = [
+    "payment_amount",
+    "paid_amount",
+    "p_amount",
+    "payment_id",
+    "transaction_payment_id",
+    "p_id",
+    "payment_date",
+    "p_date",
+    "payment_method_id",
+    "payment_method_name",
+  ].some((key) => record[key] !== undefined && record[key] !== null && record[key] !== "");
+  const isPaymentPath = /payments?|deposits?|tenders?/i.test(path);
+  const isPaymentRecord = isPaymentPath && Boolean(
+    hasPaymentSpecificField ||
+    method ||
+    (record.amount !== undefined && amount && readMoneyAmount(amount) < 0),
+  );
+
+  if (isPaymentRecord && !isAggregatePayment && amount && (id || date || method || description)) {
+    return [{
+      amount: formatMoney(String(readMoneyAmount(amount))),
+      date,
+      description,
+      id,
+      isDeposit: /deposit/i.test(`${path} ${description ?? ""}`),
+      method,
+      status,
+    }];
+  }
+
+  return Object.entries(record)
+    .flatMap(([key, nestedValue]) =>
+      collectTransactionPaymentSummaries(nestedValue, `${path}.${key}`, depth + 1)
+    )
+    .slice(0, 40);
+}
+
+function collectTransactionSettlementSummary(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { depositsTotal: null, paymentsTotal: null, remainingDue: null };
+  }
+
+  const record = value as Record<string, unknown>;
+  const depositsTotal = readDeepAnyString(record, [
+    "deposits_total",
+    "total_deposits",
+    "deposit_total",
+    "deposits_paid",
+  ]);
+  const paymentsTotal = readDeepAnyString(record, [
+    "payments_total",
+    "total_payments",
+    "payment_total",
+    "payments_paid",
+  ]);
+  const remainingDue = readDeepAnyString(record, [
+    "remaining_due",
+    "balance_due",
+    "amount_due",
+  ]);
+
+  return {
+    depositsTotal: depositsTotal ? formatMoney(String(readMoneyAmount(depositsTotal))) : null,
+    paymentsTotal: paymentsTotal ? formatMoney(String(readMoneyAmount(paymentsTotal))) : null,
+    remainingDue: remainingDue ? formatMoney(String(readMoneyAmount(remainingDue))) : null,
+  };
+}
+
+function collectTransactionChargeSummaries(
+  value: unknown,
+  path = "root",
+  depth = 0,
+): Array<{
+  amount: string | null;
+  animalName: string | null;
+  description: string | null;
+  id: string | null;
+  quantity: string | null;
+  reservationId: string | null;
+}> {
+  if (depth > 8 || !value || typeof value !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item, index) =>
+        collectTransactionChargeSummaries(item, `${path}[${index}]`, depth + 1)
+      )
+      .slice(0, 60);
+  }
+
+  const record = value as Record<string, unknown>;
+  const isChargePath = /items?|charges?|line[_-]?items?/i.test(path) &&
+    !/payments?|deposits?|tenders?/i.test(path);
+  const description = readAnyString(record, [
+    "item_description",
+    "description",
+    "item_name",
+    "name",
+    "label",
+    "title",
+    "type",
+  ]);
+  const amount = readAnyString(record, ["total", "amount", "price", "subtotal", "item_total"]);
+
+  if (isChargePath && description && amount) {
+    const reservationId =
+      readAnyString(record, ["reservation_id", "r_id", "booking_id"]) ??
+      collectReservationIds(record)[0] ??
+      null;
+
+    return [{
+      amount: formatMoney(String(readMoneyAmount(amount))),
+      animalName: stripHtml(readDeepAnyString(record, ["animal_name", "pet_name"])),
+      description: stripHtml(description),
+      id: readAnyString(record, ["transaction_item_id", "item_id", "id"]),
+      quantity: readAnyString(record, ["quantity", "qty", "units"]),
+      reservationId,
+    }];
+  }
+
+  return Object.entries(record)
+    .flatMap(([key, nestedValue]) =>
+      collectTransactionChargeSummaries(nestedValue, `${path}.${key}`, depth + 1)
+    )
     .slice(0, 60);
 }
 
@@ -3805,7 +4255,15 @@ function stripHtml(value: string | null) {
     return null;
   }
 
-  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() || null;
+  const decoded = value
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ");
+
+  return decoded.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() || null;
 }
 
 function formatWeight(value: string | null) {

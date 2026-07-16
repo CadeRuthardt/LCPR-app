@@ -18,9 +18,25 @@ import {
   getCurrentGingrInvoices,
   getGingrInvoiceReservationIds,
 } from "@/services/gingr";
-import type { GingrInvoiceSummary } from "@/services/gingr";
+import type {
+  GingrInvoiceChargeSummary,
+  GingrInvoicePaymentSummary,
+  GingrInvoiceSummary,
+} from "@/services/gingr";
 import { colors, fonts, radius, spacing } from "@/theme";
 import type { ClientReservationDetail, ReservationEstimate } from "@/types/app";
+
+type ReservationInvoiceDetails = {
+  chargeDetails: GingrInvoiceChargeSummary[];
+  chargesAvailable: boolean;
+  depositTotal: string | null;
+  invoiceIds: string[];
+  paymentDetails: GingrInvoicePaymentSummary[];
+  paymentTotal: string | null;
+  remainingDue: string | null;
+  reservationIds: string[];
+  total: string;
+};
 
 export function ReservationDetailScreen() {
   const params = useLocalSearchParams<{ reservationIds?: string; reservationSummary?: string }>();
@@ -30,8 +46,8 @@ export function ReservationDetailScreen() {
   const initialDetail = getCachedClientReservationDetailForApp(reservationIds);
   const [detail, setDetail] = React.useState<ClientReservationDetail | null>(initialDetail);
   const [detailKey, setDetailKey] = React.useState(initialDetail ? reservationKey : "");
-  const [invoiceTotals, setInvoiceTotals] = React.useState<Record<string, string>>(() =>
-    buildInvoiceTotals(getCachedCurrentGingrInvoices()?.lookups?.flatMap((lookup) => lookup.matchingOwnerInvoices) ?? []),
+  const [invoiceDetails, setInvoiceDetails] = React.useState<Record<string, ReservationInvoiceDetails>>(() =>
+    buildInvoiceDetails(getCachedCurrentGingrInvoices()?.lookups?.flatMap((lookup) => lookup.matchingOwnerInvoices) ?? []),
   );
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(!initialDetail);
@@ -43,7 +59,7 @@ export function ReservationDetailScreen() {
 
     setDetail(cachedDetail);
     setDetailKey(cachedDetail ? reservationKey : "");
-    setInvoiceTotals(buildInvoiceTotals(getCachedCurrentGingrInvoices()?.lookups?.flatMap((lookup) => lookup.matchingOwnerInvoices) ?? []));
+    setInvoiceDetails(buildInvoiceDetails(getCachedCurrentGingrInvoices()?.lookups?.flatMap((lookup) => lookup.matchingOwnerInvoices) ?? []));
     setErrorMessage(null);
     setIsLoading(!cachedDetail);
 
@@ -70,10 +86,10 @@ export function ReservationDetailScreen() {
         if (reservationDetail?.groupedReservations.some(isCheckedOutReservation)) {
           const invoiceResponse = await getCurrentGingrInvoices().catch(() => null);
           if (isMounted) {
-            setInvoiceTotals(buildInvoiceTotals(invoiceResponse?.lookups?.flatMap((lookup) => lookup.matchingOwnerInvoices) ?? []));
+            setInvoiceDetails(buildInvoiceDetails(invoiceResponse?.lookups?.flatMap((lookup) => lookup.matchingOwnerInvoices) ?? []));
           }
         } else {
-          setInvoiceTotals({});
+          setInvoiceDetails({});
         }
       })
       .catch((error: unknown) => {
@@ -129,7 +145,7 @@ export function ReservationDetailScreen() {
         </Card>
       ) : null}
 
-      {visibleDetail ? <ReservationDetailContent key={reservationKey} detail={visibleDetail} invoiceTotals={invoiceTotals} reservationSummary={reservationSummary} /> : null}
+      {visibleDetail ? <ReservationDetailContent key={reservationKey} detail={visibleDetail} invoiceDetails={invoiceDetails} reservationSummary={reservationSummary} /> : null}
     </Screen>
   );
 }
@@ -140,11 +156,11 @@ function returnToReservations() {
 
 function ReservationDetailContent({
   detail,
-  invoiceTotals,
+  invoiceDetails,
   reservationSummary,
 }: {
   detail: ClientReservationDetail;
-  invoiceTotals: Record<string, string>;
+  invoiceDetails: Record<string, ReservationInvoiceDetails>;
   reservationSummary: string | null;
 }) {
   const [selectedPetIndex, setSelectedPetIndex] = React.useState(0);
@@ -157,7 +173,13 @@ function ReservationDetailContent({
   );
   const activeReservation = detail.groupedReservations[selectedReservationIndex] ?? detail;
   const formattedLocation = formatSpecificLocation(activeReservation.location);
-  const stayLength = formatNightCount(activeReservation.nights ?? activeReservation.unitsOfTime, activeReservation.startDate, activeReservation.endDate);
+  const stayLength = isBoardingReservation(activeReservation.reservationType)
+    ? formatNightCount(
+      activeReservation.nights ?? activeReservation.unitsOfTime,
+      activeReservation.checkInAt ?? activeReservation.startDate,
+      activeReservation.checkOutAt ?? activeReservation.endDate,
+    )
+    : formatReservationType(activeReservation.reservationType) ?? "Visit";
   const addOnServices = parseAddOnServices(activeReservation.services, activeReservation.groomingNotes);
   const petNames = detail.petDetails.map((pet) => pet.name).filter(Boolean);
   const activeEstimate =
@@ -173,13 +195,52 @@ function ReservationDetailContent({
   );
   const isCheckedOut = isCheckedOutReservation(activeReservation);
   const isConfirmed = activeReservation.status.trim().toLowerCase() === "confirmed";
-  const activeDisplayedTotal = isCheckedOut
-    ? invoiceTotals[activeReservation.id] ?? activeEstimate?.totalDue ?? null
-    : activeEstimate?.totalDue ?? null;
-  const groupedInvoiceTotal = sumFormattedMoney(
-    detail.groupedReservations.map((reservation) =>
-      invoiceTotals[reservation.id] ?? detail.estimatesByReservation[reservation.id]?.totalDue ?? null,
-    ),
+  const activeInvoice = invoiceDetails[activeReservation.id] ?? null;
+  const activeReservationCharges = activeInvoice
+    ? getChargesForReservation(activeInvoice.chargeDetails, activeReservation, selectedPet?.name)
+    : [];
+  const activeReservationChargeTotal = activeInvoice
+    ? activeInvoice.chargesAvailable
+      ? sumFormattedMoney(activeReservationCharges.map((charge) => charge.amount)) ?? "$0.00"
+      : null
+    : null;
+  const combinedInvoiceReservations = activeInvoice
+    ? detail.groupedReservations.filter((reservation) =>
+      activeInvoice.reservationIds.length === 0 || activeInvoice.reservationIds.includes(reservation.id),
+    )
+    : [];
+  const invoiceReservationSummaries = activeInvoice
+    ? combinedInvoiceReservations.map((reservation) => {
+      const petName = reservation.animalNames[0] ?? "Reservation";
+      const charges = getChargesForReservation(activeInvoice.chargeDetails, reservation, petName);
+      return {
+        amount: sumFormattedMoney(charges.map((charge) => charge.amount)) ?? "$0.00",
+        label: formatPetNameList(reservation.animalNames) || `Reservation #${reservation.id}`,
+        reservationId: reservation.id,
+      };
+    })
+    : [];
+  const invoiceLevelCharges = activeInvoice
+    ? activeInvoice.chargeDetails.filter((charge) =>
+      !combinedInvoiceReservations.some((reservation) =>
+        getChargesForReservation([charge], reservation, reservation.animalNames[0]).length > 0,
+      ),
+    )
+    : [];
+  const invoiceIsFinalized = combinedInvoiceReservations.length > 0 &&
+    combinedInvoiceReservations.every(isCheckedOutReservation);
+  const displayedRemainingDue = activeInvoice?.remainingDue ??
+    (invoiceIsFinalized ? "$0.00" : null);
+  const displayedPaymentTotal = activeInvoice
+    ? activeInvoice.paymentTotal ?? deriveAppliedPaymentTotal(
+      activeInvoice.total,
+      displayedRemainingDue,
+      activeInvoice.depositTotal,
+    )
+    : null;
+  const groupedInvoiceTotal = getUniqueCombinedInvoiceTotal(
+    detail.groupedReservations,
+    invoiceDetails,
   );
   const groupedDisplayedTotal = detail.groupedReservations.every(isCheckedOutReservation)
     ? groupedInvoiceTotal
@@ -249,38 +310,128 @@ function ReservationDetailContent({
       </View>
 
       <View style={styles.stayFacts}>
-        <StayFact label="Check-in" value={formatIsoDate(activeReservation.startDate)} subvalue={formatTimeOnly(activeReservation.checkInAt ?? activeReservation.startDateTimeLabel)} />
-        <StayFact bordered label="Check-out" value={formatIsoDate(activeReservation.endDate)} subvalue={formatTimeOnly(activeReservation.checkOutAt ?? activeReservation.endDateTimeLabel)} />
+        <StayFact label="Check-in" value={formatIsoDate(activeReservation.checkInAt ?? activeReservation.startDate)} subvalue={formatTimeOnly(activeReservation.checkInAt ?? activeReservation.startDateTimeLabel)} />
+        <StayFact bordered label="Check-out" value={formatIsoDate(activeReservation.checkOutAt ?? activeReservation.endDate)} subvalue={formatTimeOnly(activeReservation.checkOutAt ?? activeReservation.endDateTimeLabel)} />
         <StayFact label="Total stay" value={stayLength} subvalue={formattedLocation} />
       </View>
 
       <CompactCard icon="calendar" title="Reservation Summary">
-        {activeEstimateReservation ? (
-          <EstimateLine
-            label={formatEstimateReservationLabel(activeEstimateReservation.label, selectedPet?.name)}
-            detail={formatEstimateQuantity(activeEstimateReservation.quantity, activeEstimateReservation.unitPrice)}
-            value={activeEstimateReservation.subtotal}
-          />
-        ) : null}
-        {activeEstimateReservation?.modifiers?.map((modifier, index) => (
-          <EstimateLine
-            key={`${modifier.label}-${index}`}
-            label={modifier.label ?? "Rate modifier"}
-            detail={formatEstimateQuantity(modifier.quantity, modifier.unitPrice)}
-            value={modifier.total}
-          />
-        ))}
-        {petSpecificEstimateDetails.map((line, index) => (
-          <EstimateLine
-            key={`${line.label}-${index}`}
-            label={line.label ?? "Service"}
-            detail={formatEstimateQuantity(line.quantity, line.unitPrice)}
-            value={line.total}
-          />
-        ))}
-        {activeEstimate?.tax ? <EstimateLine label="Tax" value={activeEstimate.tax} /> : null}
-        <View style={styles.totalRow}><Text variant="title">{isCheckedOut ? "Reservation Total" : "Reservation Estimate"}</Text><Text selectable style={styles.totalValue} variant="title">{activeDisplayedTotal ?? (isCheckedOut ? "Invoice unavailable" : "Estimate unavailable")}</Text></View>
+        {isCheckedOut ? (
+          activeReservationCharges.length ? activeReservationCharges.map((charge, index) => (
+            <EstimateLine
+              detail={charge.quantity && charge.quantity !== "1" ? `Quantity: ${charge.quantity}` : null}
+              key={charge.id ?? `${charge.description}-${charge.amount}-${index}`}
+              label={cleanInvoiceChargeLabel(charge.description) ?? "Charge"}
+              value={charge.amount}
+            />
+          )) : (
+            <Text variant="caption" tone="muted">
+              {activeInvoice?.chargesAvailable
+                ? "No finalized charges were assigned to this reservation."
+                : "Finalized charge details are unavailable."}
+            </Text>
+          )
+        ) : (
+          <>
+            {activeEstimateReservation ? (
+              <EstimateLine
+                label={formatEstimateReservationLabel(activeEstimateReservation.label, selectedPet?.name)}
+                detail={formatEstimateQuantity(activeEstimateReservation.quantity, activeEstimateReservation.unitPrice)}
+                value={activeEstimateReservation.subtotal}
+              />
+            ) : null}
+            {activeEstimateReservation?.modifiers?.map((modifier, index) => (
+              <EstimateLine
+                key={`${modifier.label}-${index}`}
+                label={modifier.label ?? "Rate modifier"}
+                detail={formatEstimateQuantity(modifier.quantity, modifier.unitPrice)}
+                value={modifier.total}
+              />
+            ))}
+            {petSpecificEstimateDetails.map((line, index) => (
+              <EstimateLine
+                key={`${line.label}-${index}`}
+                label={line.label ?? "Service"}
+                detail={formatEstimateQuantity(line.quantity, line.unitPrice)}
+                value={line.total}
+              />
+            ))}
+            {activeEstimate?.tax ? <EstimateLine label="Tax" value={activeEstimate.tax} /> : null}
+          </>
+        )}
+        <View style={styles.totalRow}>
+          <Text variant="title">{isCheckedOut ? "Reservation Charges" : "Reservation Estimate"}</Text>
+          <Text selectable style={styles.totalValue} variant="title">
+            {isCheckedOut
+              ? activeReservationChargeTotal ?? "Invoice unavailable"
+              : activeEstimate?.totalDue ?? "Estimate unavailable"}
+          </Text>
+        </View>
       </CompactCard>
+
+      {isCheckedOut && activeInvoice ? (
+        <CompactCard
+          icon="credit-card"
+          title={activeInvoice.invoiceIds.length === 1
+            ? `${invoiceReservationSummaries.length > 1 ? "Combined Invoice" : "Invoice"} #${activeInvoice.invoiceIds[0]}`
+            : invoiceReservationSummaries.length > 1 ? "Combined Checkout Invoice" : "Checkout Invoice"}
+        >
+          {invoiceReservationSummaries.length > 1 ? (
+            <Text style={styles.invoiceContext} variant="caption" tone="muted">
+              {`${formatPetNameList(invoiceReservationSummaries.map((summary) => summary.label))} checked out together. Charges and payment are combined on this invoice.`}
+            </Text>
+          ) : null}
+          {invoiceReservationSummaries.map((summary) => (
+            <EstimateLine
+              key={summary.reservationId}
+              label={`${summary.label} charges`}
+              value={summary.amount}
+            />
+          ))}
+          {invoiceLevelCharges.map((charge, index) => (
+            <EstimateLine
+              detail={charge.quantity && charge.quantity !== "1" ? `Quantity: ${charge.quantity}` : null}
+              key={charge.id ?? `invoice-${charge.description}-${charge.amount}-${index}`}
+              label={cleanInvoiceChargeLabel(charge.description) ?? "Invoice charge"}
+              value={charge.amount}
+            />
+          ))}
+          <View style={styles.invoiceTotalRow}>
+            <Text variant="title">Invoice Total</Text>
+            <Text selectable style={styles.totalValue} variant="title">{activeInvoice.total}</Text>
+          </View>
+          {activeInvoice.paymentDetails
+            .filter((payment) => payment.isDeposit && isInactiveDeposit(payment.status))
+            .map((payment, index) => (
+              <EstimateLine
+                detail={formatPaymentSummary([payment])}
+                key={payment.id ?? `inactive-deposit-${index}`}
+                label={`Deposit · ${formatDepositStatus(payment.status)}`}
+                value={formatAbsoluteMoney(payment.amount)}
+              />
+            ))}
+          {activeInvoice.depositTotal ? (
+            <EstimateLine
+              detail={formatPaymentSummary(activeInvoice.paymentDetails.filter((payment) => payment.isDeposit && !isInactiveDeposit(payment.status)))}
+              label="Deposit applied"
+              value={activeInvoice.depositTotal}
+            />
+          ) : null}
+          {displayedPaymentTotal ? (
+            <EstimateLine
+              detail={formatPaymentSummary(activeInvoice.paymentDetails.filter((payment) => !payment.isDeposit))}
+              label="Payments"
+              value={displayedPaymentTotal}
+            />
+          ) : null}
+          <View style={styles.remainingRow}>
+            <Text variant="caption">Remaining Due</Text>
+            <Text selectable style={styles.remainingValue} variant="caption">
+              {displayedRemainingDue ?? "Unavailable"}
+            </Text>
+          </View>
+        </CompactCard>
+      ) : null}
 
       <Card style={[styles.compactCard, styles.warmCard]}>
         <View style={styles.notesRow}>
@@ -321,7 +472,7 @@ function ReservationDetailContent({
         <View style={styles.allPetsSection}>
           <View style={styles.allPetsHeading}>
             <Text style={styles.allPetsTitle} variant="caption">All Pets on This Reservation ({detail.petDetails.length})</Text>
-            <Text style={styles.allPetsTotal} variant="caption">{detail.groupedReservations.every(isCheckedOutReservation) ? "Total" : "Estimate"}: {groupedDisplayedTotal ?? "Unavailable"}</Text>
+            <Text style={styles.allPetsTotal} variant="caption">{detail.groupedReservations.every(isCheckedOutReservation) ? "Invoice" : "Estimate"}: {groupedDisplayedTotal ?? "Unavailable"}</Text>
           </View>
           <Card style={styles.allPetsCard}><View style={styles.allPetsList}>
             {detail.petDetails.map((pet, index) => (
@@ -329,7 +480,7 @@ function ReservationDetailContent({
                 {pet.imageUrl ? <Image source={{ uri: pet.imageUrl }} style={styles.allPetImage} /> : <View style={[styles.allPetImage, styles.petImageFallback]}><Icon color={colors.goldenrod} name="paw" size={14} /></View>}
                 <View style={styles.allPetCopy}><Text variant="caption">{pet.name}</Text><Text numberOfLines={1} variant="caption" tone="muted">{[pet.breed, formatPetAge(pet.age)].filter(Boolean).join(" · ") || "Pet details"}</Text></View>
                 <Text selectable style={styles.allPetReservationTotal} variant="caption">
-                  {getPetReservationTotal(detail, invoiceTotals, pet.name)}
+                  {getPetReservationTotal(detail, invoiceDetails, pet.name)}
                 </Text>
               </Pressable>
             ))}
@@ -345,7 +496,7 @@ function ReservationDetailContent({
   );
 }
 
-function CompactCard({ actionLabel, children, icon, title, tone = "default" }: React.PropsWithChildren<{ actionLabel?: string; icon: "calendar" | "info" | "paw" | "sparkles" | "star"; title: string; tone?: "default" | "warm" }>) {
+function CompactCard({ actionLabel, children, icon, title, tone = "default" }: React.PropsWithChildren<{ actionLabel?: string; icon: "calendar" | "credit-card" | "info" | "paw" | "sparkles" | "star"; title: string; tone?: "default" | "warm" }>) {
   return <Card style={[styles.compactCard, tone === "warm" && styles.warmCard]}><View style={styles.cardHeading}><Icon color={tone === "warm" ? colors.mutedGold : colors.blackCherry} name={icon} size={18} /><Text style={styles.cardTitle} variant="title">{title}</Text>{actionLabel ? <Text style={styles.cardAction} variant="caption">{actionLabel}</Text> : null}</View><View style={styles.cardBody}>{children}</View></Card>;
 }
 
@@ -470,7 +621,7 @@ function parseAddOnServices(services: string | null, groomingNotes: string | nul
   return [...new Set(values)];
 }
 
-function getPetReservationTotal(detail: ClientReservationDetail, invoiceTotals: Record<string, string>, petName: string) {
+function getPetReservationTotal(detail: ClientReservationDetail, invoiceDetails: Record<string, ReservationInvoiceDetails>, petName: string) {
   const reservation = detail.groupedReservations.find((candidate) =>
     reservationMatchesPet(candidate.animalNames, petName),
   );
@@ -479,9 +630,22 @@ function getPetReservationTotal(detail: ClientReservationDetail, invoiceTotals: 
     return "Unavailable";
   }
 
-  return isCheckedOutReservation(reservation)
-    ? invoiceTotals[reservation.id] ?? detail.estimatesByReservation[reservation.id]?.totalDue ?? "Unavailable"
-    : detail.estimatesByReservation[reservation.id]?.totalDue ?? "Unavailable";
+  if (!isCheckedOutReservation(reservation)) {
+    return detail.estimatesByReservation[reservation.id]?.totalDue ?? "Unavailable";
+  }
+
+  const invoice = invoiceDetails[reservation.id];
+  if (!invoice) {
+    return "Unavailable";
+  }
+
+  if (!invoice.chargesAvailable) {
+    return "Unavailable";
+  }
+
+  return sumFormattedMoney(
+    getChargesForReservation(invoice.chargeDetails, reservation, petName).map((charge) => charge.amount),
+  ) ?? "$0.00";
 }
 
 function isCheckedOutReservation(reservation: { status: string }) {
@@ -489,23 +653,280 @@ function isCheckedOutReservation(reservation: { status: string }) {
   return status.includes("checked out") || status.includes("checkout") || status.includes("completed") || status.includes("complete");
 }
 
-function buildInvoiceTotals(invoices: GingrInvoiceSummary[]) {
+function buildInvoiceDetails(invoices: GingrInvoiceSummary[]) {
   const uniqueInvoices = new Map<string, GingrInvoiceSummary>();
   for (const invoice of invoices) {
     const key = invoice.id ?? [invoice.reservationId, invoice.date, invoice.total].join("|");
     if (!uniqueInvoices.has(key)) uniqueInvoices.set(key, invoice);
   }
 
-  const totals = new Map<string, string[]>();
+  const invoicesByReservation = new Map<string, GingrInvoiceSummary[]>();
   for (const invoice of uniqueInvoices.values()) {
     if (!invoice.total) continue;
     const reservationIds = getGingrInvoiceReservationIds(invoice);
     for (const reservationId of reservationIds) {
-      totals.set(reservationId, [...(totals.get(reservationId) ?? []), invoice.total]);
+      invoicesByReservation.set(reservationId, [...(invoicesByReservation.get(reservationId) ?? []), invoice]);
     }
   }
 
-  return Object.fromEntries(Array.from(totals, ([reservationId, values]) => [reservationId, sumFormattedMoney(values) ?? ""]));
+  return Object.fromEntries(Array.from(invoicesByReservation, ([reservationId, matchingInvoices]) => {
+    const paymentDetails = deduplicatePayments(
+      matchingInvoices.flatMap((invoice) => invoice.paymentDetails ?? []),
+    );
+    const chargeDetails = deduplicateCharges(
+      matchingInvoices.flatMap((invoice) => invoice.chargeDetails ?? []),
+    ).filter(isDisplayableInvoiceCharge);
+    const depositPayments = paymentDetails.filter((payment) => payment.isDeposit && !isInactiveDeposit(payment.status));
+    const otherPayments = paymentDetails.filter((payment) => !payment.isDeposit);
+    const total = sumFormattedMoney(matchingInvoices.map((invoice) => invoice.total)) ?? "";
+    const reportedRemainingDue =
+      sumFormattedMoney(matchingInvoices.map((invoice) => invoice.remainingDue ?? null)) ??
+      (matchingInvoices.length > 0 && matchingInvoices.every(isClosedInvoice) ? "$0.00" : null);
+    const depositTotal =
+      sumAppliedMoney(depositPayments.map((payment) => payment.amount)) ??
+      sumReportedAppliedMoney(matchingInvoices.map((invoice) => invoice.depositsTotal ?? null));
+    const paymentTotal =
+      sumAppliedMoney(otherPayments.map((payment) => payment.amount)) ??
+      deriveAppliedPaymentTotal(total, reportedRemainingDue, depositTotal) ??
+      sumReportedAppliedMoney(matchingInvoices.map((invoice) => invoice.paymentsTotal ?? null));
+    const remainingDue = reportedRemainingDue ?? (
+      depositTotal || paymentTotal
+        ? subtractFormattedMoney(total, [depositTotal, paymentTotal])
+        : null
+    );
+
+    return [reservationId, {
+      chargeDetails,
+      chargesAvailable: matchingInvoices.some((invoice) =>
+        Array.isArray(invoice.chargeDetails) && !invoice.transactionLookupError,
+      ),
+      depositTotal,
+      invoiceIds: [...new Set(matchingInvoices.map((invoice) => invoice.id).filter((id): id is string => Boolean(id)))],
+      paymentDetails,
+      paymentTotal,
+      remainingDue,
+      reservationIds: [...new Set(matchingInvoices.flatMap(getGingrInvoiceReservationIds))],
+      total,
+    }];
+  }));
+}
+
+function deduplicateCharges(charges: GingrInvoiceChargeSummary[]) {
+  const uniqueCharges = new Map<string, GingrInvoiceChargeSummary>();
+
+  for (const charge of charges) {
+    const key = [
+      charge.id,
+      cleanInvoiceChargeLabel(charge.description),
+      charge.amount,
+      charge.quantity,
+      charge.reservationId,
+      charge.animalName,
+    ].join("|");
+    if (!uniqueCharges.has(key)) {
+      uniqueCharges.set(key, charge);
+    }
+  }
+
+  return Array.from(uniqueCharges.values());
+}
+
+function isDisplayableInvoiceCharge(charge: GingrInvoiceChargeSummary) {
+  const amount = parseMoney(charge.amount);
+  return Boolean(
+    charge.description &&
+    Number.isFinite(amount) &&
+    amount !== 0 &&
+    !/^(subtotal|total due|payments?|deposits?|remaining due)$/i.test(charge.description.trim()),
+  );
+}
+
+function getChargesForReservation(
+  charges: GingrInvoiceChargeSummary[],
+  reservation: { animalNames: string[]; id: string },
+  selectedPetName?: string,
+) {
+  const reservationPetNames = new Set(
+    [...reservation.animalNames, selectedPetName ?? ""]
+      .map(normalizeComparableText)
+      .filter(Boolean),
+  );
+
+  return charges.filter((charge) => {
+    if (charge.reservationId) {
+      return charge.reservationId === reservation.id;
+    }
+
+    const chargeAnimalName = normalizeComparableText(charge.animalName);
+    if (chargeAnimalName) {
+      return reservationPetNames.has(chargeAnimalName);
+    }
+
+    const description = normalizeComparableText(charge.description);
+    return [...reservationPetNames].some((petName) =>
+      ` ${description} `.includes(` ${petName} `),
+    );
+  });
+}
+
+function normalizeComparableText(value?: string | null) {
+  return cleanInvoiceChargeLabel(value)?.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() ?? "";
+}
+
+function cleanInvoiceChargeLabel(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const decoded = value
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ");
+
+  return decoded.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() || null;
+}
+
+function getUniqueCombinedInvoiceTotal(
+  reservations: Array<{ id: string }>,
+  invoiceDetails: Record<string, ReservationInvoiceDetails>,
+) {
+  const uniqueInvoices = new Map<string, string>();
+
+  for (const reservation of reservations) {
+    const invoice = invoiceDetails[reservation.id];
+    if (!invoice) {
+      continue;
+    }
+
+    const invoiceKey = invoice.invoiceIds.length > 0
+      ? [...invoice.invoiceIds].sort().join("|")
+      : `reservation:${reservation.id}`;
+    if (!uniqueInvoices.has(invoiceKey)) {
+      uniqueInvoices.set(invoiceKey, invoice.total);
+    }
+  }
+
+  return sumFormattedMoney([...uniqueInvoices.values()]);
+}
+
+function isInactiveDeposit(status: string | null) {
+  return Boolean(status && /forfeit|refund|cancel|void/i.test(status));
+}
+
+function isClosedInvoice(invoice: GingrInvoiceSummary) {
+  const status = invoice.status?.trim().toLowerCase().replace(/[_-]+/g, " ") ?? "";
+  return status.includes("closed") || status.includes("paid") || status.includes("complete");
+}
+
+function formatDepositStatus(status: string | null) {
+  if (!status) {
+    return "Not applied";
+  }
+
+  const normalizedStatus = status.trim().toLowerCase();
+  if (normalizedStatus.includes("forfeit")) return "Forfeited";
+  if (normalizedStatus.includes("refund")) return "Refunded";
+  if (normalizedStatus.includes("cancel")) return "Cancelled";
+  if (normalizedStatus.includes("void")) return "Voided";
+  return status;
+}
+
+function deduplicatePayments(payments: GingrInvoicePaymentSummary[]) {
+  const uniquePayments = new Map<string, GingrInvoicePaymentSummary>();
+
+  for (const payment of payments) {
+    const key = payment.id ?? [payment.amount, payment.date, payment.description, payment.method].join("|");
+    if (!uniquePayments.has(key)) {
+      uniquePayments.set(key, payment);
+    }
+  }
+
+  return Array.from(uniquePayments.values());
+}
+
+function sumAppliedMoney(values: Array<string | null>) {
+  const amounts = values
+    .map(parseMoney)
+    .filter((value) => Number.isFinite(value));
+
+  if (amounts.length === 0) {
+    return null;
+  }
+
+  const appliedAmount = -amounts.reduce((sum, value) => sum + value, 0);
+  return appliedAmount > 0 ? formatMoneyAmount(appliedAmount) : null;
+}
+
+function sumReportedAppliedMoney(values: Array<string | null>) {
+  const amounts = values
+    .map(parseMoney)
+    .filter((value) => Number.isFinite(value));
+
+  if (amounts.length === 0) {
+    return null;
+  }
+
+  const appliedAmount = Math.abs(amounts.reduce((sum, value) => sum + value, 0));
+  return appliedAmount > 0 ? formatMoneyAmount(appliedAmount) : null;
+}
+
+function deriveAppliedPaymentTotal(
+  total: string,
+  remainingDue: string | null,
+  depositTotal: string | null,
+) {
+  if (!remainingDue) {
+    return null;
+  }
+
+  const totalAmount = parseMoney(total);
+  const remainingAmount = parseMoney(remainingDue);
+  const depositAmount = parseMoney(depositTotal);
+  if (!Number.isFinite(totalAmount) || !Number.isFinite(remainingAmount)) {
+    return null;
+  }
+
+  const paymentAmount = totalAmount - remainingAmount - (Number.isFinite(depositAmount) ? Math.abs(depositAmount) : 0);
+  return paymentAmount > 0 ? formatMoneyAmount(paymentAmount) : null;
+}
+
+function subtractFormattedMoney(total: string, deductions: Array<string | null>) {
+  const totalAmount = parseMoney(total);
+  const deductionAmount = deductions
+    .map(parseMoney)
+    .filter((value) => Number.isFinite(value))
+    .reduce((sum, value) => sum + Math.abs(value), 0);
+
+  return Number.isFinite(totalAmount) ? formatMoneyAmount(Math.max(0, totalAmount - deductionAmount)) : null;
+}
+
+function parseMoney(value: string | null) {
+  return Number(value?.replace(/[^0-9.-]/g, "") ?? Number.NaN);
+}
+
+function formatMoneyAmount(value: number) {
+  return value.toLocaleString("en-US", { currency: "USD", style: "currency" });
+}
+
+function formatAbsoluteMoney(value: string | null) {
+  const amount = parseMoney(value);
+  return Number.isFinite(amount) ? formatMoneyAmount(Math.abs(amount)) : value;
+}
+
+function formatPaymentSummary(payments: GingrInvoicePaymentSummary[]) {
+  if (payments.length === 0) {
+    return null;
+  }
+
+  if (payments.length > 1) {
+    return `${payments.length} transactions`;
+  }
+
+  const payment = payments[0];
+  return [payment.method, formatIsoDate(payment.date)].filter(Boolean).join(" · ") || null;
 }
 
 function formatEstimateReservationLabel(label: string | null, animalName?: string) {
@@ -619,8 +1040,10 @@ function differenceInDays(startDate: string, endDate: string) {
 }
 
 function parseIsoDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
+  const dateParts = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const date = dateParts
+    ? new Date(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]))
+    : new Date(value);
 
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -871,6 +1294,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 56,
     width: 56,
+  },
+  invoiceContext: {
+    lineHeight: 18,
+    marginBottom: spacing.xs,
+  },
+  invoiceTotalRow: {
+    borderTopColor: colors.creamBorder,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.xs,
+    paddingTop: spacing.sm,
   },
   noticeCard: {
     gap: spacing.md,

@@ -180,7 +180,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const signOut = React.useCallback(async () => {
     setAuthError(null);
 
-    const { error } = await requireSupabase().auth.signOut();
+    const { error } = await requireSupabase().auth.signOut({ scope: "local" });
 
     if (error) {
       setAuthError(getFriendlyAuthError(error));

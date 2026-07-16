@@ -28,6 +28,7 @@ import {
   createReservationRequest,
   getCachedClientDashboardData,
   getCurrentClientPetsForApp,
+  sendReservationRequestNotification,
 } from "@/services/client-data";
 import {
   getCachedGingrReservationRequestCatalog,
@@ -36,7 +37,7 @@ import {
 } from "@/services/gingr";
 import { colors, fonts, layout, radii, radius, spacing, typography } from "@/theme";
 import type { Pet } from "@/types/app";
-import { hasCurrentVaccinations } from "@/utils/vaccinations";
+import { meetsVaccinationRequirements } from "@/utils/vaccinations";
 import type { ReservationRequest } from "@/types/database";
 import { goBackOrReplace, resolveFallbackRoute } from "@/utils/navigation";
 
@@ -64,7 +65,7 @@ const spaUpgrades = [
 ];
 
 type RequestStep = (typeof steps)[number];
-type PetSpeciesKind = "cat" | "dog" | "mixed" | "unknown";
+type PetSpeciesKind = "cat" | "dog" | "exotic" | "mixed" | "unknown";
 type ReservationTypeOption = (typeof fallbackReservationTypeOptions)[number];
 
 export function RequestReservationScreen() {
@@ -92,6 +93,7 @@ export function RequestReservationScreen() {
   const [enrichmentEnabled, setEnrichmentEnabled] = React.useState(false);
   const [enrichmentFrequency, setEnrichmentFrequency] = React.useState(enrichmentFrequencies[0]);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [exoticEnclosureConfirmed, setExoticEnclosureConfirmed] = React.useState(false);
   const [exitConfirmVisible, setExitConfirmVisible] = React.useState(false);
   const [requestCatalog, setRequestCatalog] =
     React.useState<GingrReservationRequestCatalog | null>(cachedCatalog);
@@ -103,7 +105,9 @@ export function RequestReservationScreen() {
   const [isLoadingCatalog, setIsLoadingCatalog] = React.useState(!cachedCatalog);
   const [isLoadingPets, setIsLoadingPets] = React.useState(cachedPets.length === 0);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [isRetryingNotification, setIsRetryingNotification] = React.useState(false);
   const [notes, setNotes] = React.useState("");
+  const [notificationSent, setNotificationSent] = React.useState<boolean | null>(null);
   const [pets, setPets] = React.useState<Pet[]>(cachedPets);
   const [reservationTypeOptions, setReservationTypeOptions] = React.useState(
     cachedReservationTypeOptions.length > 0
@@ -179,28 +183,36 @@ export function RequestReservationScreen() {
   }, []);
 
   const selectedPets = pets.filter((pet) => selectedPetIds.has(pet.id));
-  const petsMissingCurrentVaccinations = selectedPets.filter((pet) => !hasCurrentVaccinations(pet));
+  const petsMissingCurrentVaccinations = selectedPets.filter(
+    (pet) => !meetsVaccinationRequirements(pet),
+  );
   const selectedSpeciesKind = getSelectedPetSpeciesKind(selectedPets);
   const isMixedSpeciesRequest = selectedSpeciesKind === "mixed";
   const isCatRequest = selectedSpeciesKind === "cat";
+  const isDogRequest = selectedSpeciesKind === "dog";
+  const isExoticRequest = selectedSpeciesKind === "exotic";
   const isBoardingRequest = reservationType === "Boarding";
   const isDaycareRequest = reservationType === "Daycare";
   const isSpaRequest = reservationType === "Spa";
   const isWichitaFallsLocation = location.toLowerCase().includes("wichita falls");
   const hasSelectedLocation = locationOptions.includes(location);
   const availableReservationTypeOptions = React.useMemo(
-    () => reservationTypeOptions.filter((option) => !(isCatRequest && option === "Spa")),
-    [isCatRequest, reservationTypeOptions],
+    () => reservationTypeOptions.filter(
+      (option) => !((isCatRequest || isExoticRequest) && option === "Spa"),
+    ),
+    [isCatRequest, isExoticRequest, reservationTypeOptions],
   );
-  const shouldShowDogBoardingPreferences = isBoardingRequest && !isCatRequest && !isMixedSpeciesRequest;
+  const shouldShowDogBoardingPreferences = isBoardingRequest && isDogRequest;
   const shouldShowCatBoardingPreferences = isBoardingRequest && isCatRequest;
   const shouldShowBoardingPreferences =
     shouldShowDogBoardingPreferences || shouldShowCatBoardingPreferences;
   const shouldShowEnrichment = !isSpaRequest && !isMixedSpeciesRequest;
-  const shouldShowSpaOptions = !isCatRequest && !isMixedSpeciesRequest;
+  const shouldShowSpaOptions = isDogRequest;
+  const hasRequiredExoticDetails =
+    !isExoticRequest || (notes.trim().length > 0 && exoticEnclosureConfirmed);
   const experienceComplete =
     !isMixedSpeciesRequest &&
-    !(isCatRequest && isSpaRequest) &&
+    !((isCatRequest || isExoticRequest) && isSpaRequest) &&
     (!shouldShowBoardingPreferences ||
       (shouldShowDogBoardingPreferences ? Boolean(amenityPackage) : true) &&
         Boolean(suiteSize));
@@ -209,6 +221,7 @@ export function RequestReservationScreen() {
     enrichmentEnabled,
     enrichmentFrequency,
     isCatRequest,
+    isExoticRequest,
     reservationType,
     selectedSpaService,
     selectedSpaUpgrades,
@@ -254,6 +267,7 @@ export function RequestReservationScreen() {
     hasValidDateSelection &&
     hasValidTimeSelection &&
     experienceComplete &&
+    hasRequiredExoticDetails &&
     !isSubmitting;
   const isSingleDayRequest = !isBoardingRequest;
 
@@ -433,10 +447,13 @@ export function RequestReservationScreen() {
     setEnrichmentEnabled(false);
     setEnrichmentFrequency(enrichmentFrequencies[0]);
     setErrorMessage(null);
+    setExoticEnclosureConfirmed(false);
     setLocation("");
     setAmenityPackage(dogAmenityPackages[0]);
     setIsSubmitting(false);
+    setIsRetryingNotification(false);
     setNotes("");
+    setNotificationSent(null);
     setReservationType(reservationTypeOptions[0] ?? fallbackReservationTypeOptions[0]);
     setSelectedSpaService("");
     setSelectedSpaUpgrades(new Set());
@@ -483,7 +500,7 @@ export function RequestReservationScreen() {
     setIsSubmitting(true);
 
     try {
-      const request = await createReservationRequest({
+      const result = await createReservationRequest({
         amenity_package: shouldShowDogBoardingPreferences ? amenityPackage : null,
         authorized_pickup: authorizedPickup.trim() || null,
         end_date: endDate,
@@ -492,17 +509,21 @@ export function RequestReservationScreen() {
         enrichment_frequency: shouldShowEnrichment && enrichmentEnabled ? enrichmentFrequency : null,
         experience: experienceSummary,
         location,
-        notes: notes.trim() || null,
+        notes: isExoticRequest
+          ? `${notes.trim()}\n\nOwner confirmed they will provide a secure exotic enclosure.`
+          : notes.trim() || null,
         optional_services: [],
         reservation_type: reservationType,
         selected_pet_ids: Array.from(selectedPetIds),
+        selected_pet_names: selectedPets.map((pet) => pet.name),
         spa_service: shouldShowSpaOptions ? selectedSpaService || null : null,
         spa_upgrades: shouldShowSpaOptions ? Array.from(selectedSpaUpgrades) : [],
         start_date: startDate,
         start_time: startTime,
         suite_size: shouldShowBoardingPreferences ? suiteSize : null,
       });
-      setCreatedRequest(request);
+      setCreatedRequest(result.request);
+      setNotificationSent(result.notificationSent);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to submit request.");
     } finally {
@@ -522,12 +543,27 @@ export function RequestReservationScreen() {
           </View>
           <Text variant="heading">We received your request.</Text>
           <Text variant="body" tone="secondary">
-            Your reservation request is submitted. Reception will review the details before creating
-            the confirmed reservation in Gingr.
+            {notificationSent
+              ? "Your reservation request was submitted and reception has been notified by email."
+              : "Your reservation request was saved, but we couldn't email reception. Please retry before leaving this screen."}
           </Text>
           <Text variant="caption" tone="muted">
             Status: {createdRequest.status.replace("_", " ")}
           </Text>
+          {!notificationSent ? (
+            <Button
+              disabled={isRetryingNotification}
+              title={isRetryingNotification ? "Notifying Reception…" : "Retry Reception Email"}
+              variant="secondary"
+              onPress={() => {
+                setIsRetryingNotification(true);
+                sendReservationRequestNotification(createdRequest.id)
+                  .then(() => setNotificationSent(true))
+                  .catch(() => setNotificationSent(false))
+                  .finally(() => setIsRetryingNotification(false));
+              }}
+            />
+          ) : null}
           <Button
             title="Return Home"
             onPress={() => {
@@ -626,8 +662,8 @@ export function RequestReservationScreen() {
               <Card style={styles.guidanceCard}>
                 <Text variant="title">Separate requests required</Text>
                 <Text variant="body" tone="secondary">
-                  Dog and cat reservations use different accommodation options. Select pets from
-                  one species to continue, then submit a separate request for the other pets.
+                  Dogs, cats, and exotic pets use different accommodation paths. Select pets from
+                  one group to continue, then submit a separate request for the other pets.
                 </Text>
               </Card>
             ) : null}
@@ -784,8 +820,19 @@ export function RequestReservationScreen() {
             <Card style={styles.guidanceCard}>
               <Text variant="title">Let’s split this request</Text>
               <Text variant="body" tone="secondary">
-                Dogs and cats have different accommodation paths. Please go back and select pets
-                from one species for this request.
+                Dogs, cats, and exotic pets have different accommodation paths. Please go back
+                and select pets from one group for this request.
+              </Text>
+            </Card>
+          ) : null}
+
+          {isExoticRequest ? (
+            <Card style={styles.guidanceCard}>
+              <Text variant="title">Exotic lodging</Text>
+              <Text variant="body" tone="secondary">
+                All exotic pets use our designated exotic lodging area, so there is no room or
+                package to select. You must provide a secure enclosure and detailed care
+                instructions for the stay.
               </Text>
             </Card>
           ) : null}
@@ -955,10 +1002,48 @@ export function RequestReservationScreen() {
             <TextField
               multiline
               onChangeText={setNotes}
-              placeholder="Notes"
+              placeholder={
+                isExoticRequest
+                  ? "Required: feeding, habitat, handling, medication, and other care instructions"
+                  : "Notes"
+              }
               style={styles.notesField}
               value={notes}
             />
+            {isExoticRequest ? (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: exoticEnclosureConfirmed }}
+                onPress={() => setExoticEnclosureConfirmed((current) => !current)}
+                style={({ pressed }) => [
+                  styles.exoticRequirement,
+                  pressed && styles.dateFieldPressed,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.requirementCheckbox,
+                    exoticEnclosureConfirmed && styles.requirementCheckboxChecked,
+                  ]}
+                >
+                  {exoticEnclosureConfirmed ? (
+                    <Icon color={colors.textInverse} name="check" size={13} />
+                  ) : null}
+                </View>
+                <View style={styles.requirementCopy}>
+                  <Text style={typography.rowTitle}>I will provide a secure enclosure</Text>
+                  <Text style={typography.caption}>
+                    Exotic enclosures must arrive with the pet and include everything needed for
+                    a safe stay.
+                  </Text>
+                </View>
+              </Pressable>
+            ) : null}
+            {isExoticRequest && !hasRequiredExoticDetails ? (
+              <Text variant="caption" tone="secondary">
+                Care instructions and enclosure confirmation are required before submitting.
+              </Text>
+            ) : null}
           </View>
         </>
       ) : null}
@@ -1400,7 +1485,7 @@ function normalizeReservationTypeName(value: string): ReservationTypeOption | nu
 function getSelectedPetSpeciesKind(selectedPets: Pet[]): PetSpeciesKind {
   const speciesKinds = new Set(
     selectedPets
-      .map((pet) => getPetSpeciesKind(pet.species))
+      .map(getPetSpeciesKind)
       .filter((kind): kind is Exclude<PetSpeciesKind, "mixed"> => kind !== "unknown"),
   );
 
@@ -1411,8 +1496,8 @@ function getSelectedPetSpeciesKind(selectedPets: Pet[]): PetSpeciesKind {
   return speciesKinds.values().next().value ?? "unknown";
 }
 
-function getPetSpeciesKind(species?: string): PetSpeciesKind {
-  const normalized = species?.toLowerCase() ?? "";
+function getPetSpeciesKind(pet: Pet): PetSpeciesKind {
+  const normalized = (pet.species || pet.breed.split("|")[0] || "").trim().toLowerCase();
 
   if (normalized.includes("cat") || normalized.includes("feline")) {
     return "cat";
@@ -1422,7 +1507,7 @@ function getPetSpeciesKind(species?: string): PetSpeciesKind {
     return "dog";
   }
 
-  return "unknown";
+  return normalized ? "exotic" : "unknown";
 }
 
 function formatExperienceSummary({
@@ -1430,6 +1515,7 @@ function formatExperienceSummary({
   enrichmentEnabled,
   enrichmentFrequency,
   isCatRequest,
+  isExoticRequest,
   reservationType,
   selectedSpaService,
   selectedSpaUpgrades,
@@ -1440,6 +1526,7 @@ function formatExperienceSummary({
   enrichmentEnabled: boolean;
   enrichmentFrequency: string;
   isCatRequest: boolean;
+  isExoticRequest: boolean;
   reservationType: string;
   selectedSpaService: string;
   selectedSpaUpgrades: Set<string>;
@@ -1449,11 +1536,15 @@ function formatExperienceSummary({
   const parts = [reservationType];
 
   if (reservationType === "Boarding") {
-    if (!isCatRequest) {
+    if (isExoticRequest) {
+      parts.push("Exotic lodging (owner-provided enclosure)");
+    } else if (!isCatRequest) {
       parts.push(amenityPackage);
-    }
 
-    parts.push(suiteSize);
+      parts.push(suiteSize);
+    } else {
+      parts.push(suiteSize);
+    }
   }
 
   if (reservationType !== "Spa" && enrichmentEnabled) {
@@ -1886,6 +1977,17 @@ const styles = StyleSheet.create({
   modalTitle: {
     textAlign: "center",
   },
+  exoticRequirement: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceWarm,
+    borderColor: colors.border,
+    borderRadius: radii.input,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 78,
+    padding: spacing.md,
+  },
   notesField: {
     minHeight: 120,
     paddingTop: spacing.md,
@@ -1899,6 +2001,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
+  },
+  requirementCheckbox: {
+    alignItems: "center",
+    borderColor: colors.burgundy,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    height: 26,
+    justifyContent: "center",
+    width: 26,
+  },
+  requirementCheckboxChecked: {
+    backgroundColor: colors.burgundy,
+  },
+  requirementCopy: {
+    flex: 1,
+    gap: spacing.xxs,
   },
   petAvatar: {
     borderColor: colors.surface,

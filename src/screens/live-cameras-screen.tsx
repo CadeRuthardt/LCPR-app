@@ -1,6 +1,5 @@
 import * as React from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ImageBackground, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { AppState, ImageBackground, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { AppCard, AppScreen } from "@/components/app";
@@ -10,6 +9,7 @@ import {
   getCachedGingrLocationCities,
   getGingrLocationCities,
   type GingrLocation,
+  verifyVipCameraAccess,
 } from "@/services/gingr";
 import { colors, radii, radius, spacing, typography } from "@/theme";
 import { router, useLocalSearchParams } from "expo-router";
@@ -30,32 +30,8 @@ type CameraLocation = {
   heroImageUrl: string;
   id: string;
   name: string;
-  vipCameras: CameraPreview[];
+  supportsVipAccess: boolean;
 };
-
-type VipCameraAccessCode = {
-  cameraId: string;
-  locationId: string;
-};
-
-const vipCameraAccessCodes: Record<string, VipCameraAccessCode> = {
-  "E110-CASTLE": {
-    cameraId: "amarillo-e110-vip",
-    locationId: "amarillo",
-  },
-  "E210-PAW": {
-    cameraId: "amarillo-e210-vip",
-    locationId: "amarillo",
-  },
-  "E301-CHATEAU": {
-    cameraId: "amarillo-e301-vip",
-    locationId: "amarillo",
-  },
-};
-
-function getVipAccessStorageKey(locationId: string) {
-  return `lcpr.vip-camera-access.${locationId}`;
-}
 
 const cameraLocationCatalog: CameraLocation[] = [
   {
@@ -157,35 +133,7 @@ const cameraLocationCatalog: CameraLocation[] = [
     heroImageUrl: resortImages.loginHero,
     id: "amarillo",
     name: "Amarillo",
-    vipCameras: [
-      {
-        availability: "VIP in-suite camera | 24/7 during eligible reservations",
-        description: "Private VIP suite access for eligible reservations.",
-        id: "amarillo-e110-vip",
-        imageUrl: resortImages.loginHero,
-        label: "VIP",
-        title: "E110 VIP",
-        url: "https://idogcam.com/idogcamviewer.php?id=14230",
-      },
-      {
-        availability: "VIP in-suite camera | 24/7 during eligible reservations",
-        description: "Private VIP suite access for eligible reservations.",
-        id: "amarillo-e210-vip",
-        imageUrl: resortImages.loginHero,
-        label: "VIP",
-        title: "E210 VIP",
-        url: "https://idogcam.com/idogcamviewer.php?id=1575",
-      },
-      {
-        availability: "VIP in-suite camera | 24/7 during eligible reservations",
-        description: "Private VIP suite access for eligible reservations.",
-        id: "amarillo-e301-vip",
-        imageUrl: resortImages.loginHero,
-        label: "VIP",
-        title: "E301 VIP",
-        url: "https://idogcam.com/idogcamviewer.php?id=1580",
-      },
-    ],
+    supportsVipAccess: true,
   },
   {
     cameras: [
@@ -268,7 +216,7 @@ const cameraLocationCatalog: CameraLocation[] = [
     heroImageUrl: resortImages.wichitaFallsHero,
     id: "wichita-falls",
     name: "Wichita Falls",
-    vipCameras: [],
+    supportsVipAccess: true,
   },
   {
     cameras: [
@@ -285,7 +233,7 @@ const cameraLocationCatalog: CameraLocation[] = [
     heroImageUrl: resortImages.homeHero,
     id: "new-braunfels",
     name: "New Braunfels",
-    vipCameras: [],
+    supportsVipAccess: false,
   },
 ];
 
@@ -482,81 +430,118 @@ function CameraPlayer({
   onSelectCamera: (camera: CameraPreview | null) => void;
 }) {
   const isVipCamera = camera?.label === "VIP";
-  const publicCameras = location.cameras;
-  const vipCameras = location.vipCameras;
+  const publicCameras = React.useMemo(
+    () => [...location.cameras].sort((first, second) => first.title.localeCompare(second.title)),
+    [location.cameras],
+  );
   const [accessCode, setAccessCode] = React.useState("");
   const [accessError, setAccessError] = React.useState<string | null>(null);
+  const [isVerifyingVipAccess, setIsVerifyingVipAccess] = React.useState(false);
   const [isVipModalVisible, setIsVipModalVisible] = React.useState(false);
-  const [unlockedVipCameraId, setUnlockedVipCameraId] = React.useState<string | null>(null);
-  const unlockedVipCamera =
-    vipCameras.find((vipCamera) => vipCamera.id === unlockedVipCameraId) ?? null;
+  const [unlockedVipCamera, setUnlockedVipCamera] = React.useState<CameraPreview | null>(null);
+  const [verifiedAccessCode, setVerifiedAccessCode] = React.useState<string | null>(null);
+  const wasViewingVipCamera = React.useRef(false);
+
+  const verifyAccess = React.useCallback(async (
+    code: string,
+    options: { closeModal: boolean; selectCamera: boolean },
+  ) => {
+    setIsVerifyingVipAccess(true);
+    setAccessError(null);
+
+    try {
+      const result = await verifyVipCameraAccess(code, location.id);
+
+      if (!result.allowed || !result.camera) {
+        setUnlockedVipCamera(null);
+        setVerifiedAccessCode(null);
+        setAccessError(
+          result.message ??
+            "VIP access requires a valid suite code and an active checked-in reservation at this resort.",
+        );
+        return;
+      }
+
+      const verifiedCamera: CameraPreview = {
+        availability: "VIP in-suite camera | 24/7 during eligible reservations",
+        description: "Private VIP suite access for eligible reservations.",
+        id: result.camera.id,
+        imageUrl: location.heroImageUrl,
+        label: "VIP",
+        title: result.camera.title,
+        url: result.camera.url,
+      };
+
+      setAccessCode("");
+      setUnlockedVipCamera(verifiedCamera);
+      setVerifiedAccessCode(code);
+
+      if (options.selectCamera) {
+        onSelectCamera(verifiedCamera);
+      }
+
+      if (options.closeModal) {
+        setIsVipModalVisible(false);
+      }
+    } catch {
+      setUnlockedVipCamera(null);
+      setVerifiedAccessCode(null);
+      setAccessError("We couldn't verify VIP access right now. Please try again.");
+    } finally {
+      setIsVerifyingVipAccess(false);
+    }
+  }, [location.heroImageUrl, location.id, onSelectCamera]);
 
   React.useEffect(() => {
-    let isMounted = true;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        wasViewingVipCamera.current = camera?.label === "VIP";
+        setUnlockedVipCamera(null);
 
-    async function loadSavedVipCamera() {
-      try {
-        const savedCameraId = await AsyncStorage.getItem(getVipAccessStorageKey(location.id));
+        if (wasViewingVipCamera.current) {
+          onSelectCamera(null);
+        }
 
-        if (isMounted) {
-          setUnlockedVipCameraId(savedCameraId);
-        }
-      } catch {
-        if (isMounted) {
-          setUnlockedVipCameraId(null);
-        }
+        return;
       }
-    }
 
-    void loadSavedVipCamera();
+      if (verifiedAccessCode) {
+        const shouldRestoreVipCamera = wasViewingVipCamera.current || camera?.label === "VIP";
 
-    return () => {
-      isMounted = false;
-    };
-  }, [location.id]);
+        setUnlockedVipCamera(null);
+
+        if (camera?.label === "VIP") {
+          onSelectCamera(null);
+        }
+
+        void verifyAccess(verifiedAccessCode, {
+          closeModal: false,
+          selectCamera: shouldRestoreVipCamera,
+        });
+      }
+    });
+
+    return () => subscription.remove();
+  }, [camera?.label, onSelectCamera, verifiedAccessCode, verifyAccess]);
 
   async function unlockVipCamera() {
     const normalizedCode = accessCode.trim().toUpperCase();
-    const access = vipCameraAccessCodes[normalizedCode];
 
-    if (!access || access.locationId !== location.id) {
-      setAccessError("That VIP camera code could not be matched to this resort.");
+    if (!normalizedCode) {
       return;
     }
 
-    const matchedCamera = vipCameras.find((vipCamera) => vipCamera.id === access.cameraId);
-
-    if (!matchedCamera) {
-      setAccessError("That VIP camera is not available for this resort yet.");
-      return;
-    }
-
-    setAccessError(null);
-    setAccessCode("");
-    setUnlockedVipCameraId(matchedCamera.id);
-    onSelectCamera(matchedCamera);
-    setIsVipModalVisible(false);
-
-    try {
-      await AsyncStorage.setItem(getVipAccessStorageKey(location.id), matchedCamera.id);
-    } catch {
-      // Local persistence is a convenience only; keep access unlocked for this session.
-    }
+    await verifyAccess(normalizedCode, { closeModal: true, selectCamera: true });
   }
 
-  async function removeVipAccess() {
-    setUnlockedVipCameraId(null);
+  function removeVipAccess() {
+    setUnlockedVipCamera(null);
+    setVerifiedAccessCode(null);
     setAccessCode("");
     setAccessError(null);
 
     if (camera?.id === unlockedVipCamera?.id) {
       onSelectCamera(null);
-    }
-
-    try {
-      await AsyncStorage.removeItem(getVipAccessStorageKey(location.id));
-    } catch {
-      // Nothing else to do if local cleanup fails.
     }
   }
 
@@ -567,7 +552,7 @@ function CameraPlayer({
         <View style={styles.viewerPageHeaderCopy}>
           <View style={styles.viewerTitleRow}>
             <Text style={typography.screenTitle}>{location.name}</Text>
-            {vipCameras.length ? (
+            {location.supportsVipAccess ? (
               <Pressable
                 accessibilityLabel="Open VIP camera access"
                 accessibilityRole="button"
@@ -735,13 +720,14 @@ function CameraPlayer({
             accessCode={accessCode}
             accessError={accessError}
             camera={camera}
+            isVerifying={isVerifyingVipAccess}
             onChangeAccessCode={(value) => {
               setAccessCode(value);
               setAccessError(null);
             }}
             onClose={() => setIsVipModalVisible(false)}
             onRemoveAccess={() => {
-              void removeVipAccess();
+              removeVipAccess();
             }}
             onSelectCamera={(selectedCamera) => {
               onSelectCamera(selectedCamera);
@@ -767,6 +753,7 @@ function VipCameraAccessCard({
   accessCode,
   accessError,
   camera,
+  isVerifying,
   onChangeAccessCode,
   onClose,
   onRemoveAccess,
@@ -777,6 +764,7 @@ function VipCameraAccessCard({
   accessCode: string;
   accessError: string | null;
   camera: CameraPreview | null;
+  isVerifying: boolean;
   onChangeAccessCode: (value: string) => void;
   onClose: () => void;
   onRemoveAccess: () => void;
@@ -845,6 +833,7 @@ function VipCameraAccessCard({
           <TextInput
             autoCapitalize="characters"
             autoCorrect={false}
+            editable={!isVerifying}
             onChangeText={onChangeAccessCode}
             onSubmitEditing={onSubmitAccessCode}
             placeholder="Enter access code"
@@ -859,10 +848,10 @@ function VipCameraAccessCard({
             </Text>
           ) : null}
           <Button
-            disabled={!accessCode.trim()}
+            disabled={!accessCode.trim() || isVerifying}
             icon="chevron-right"
             onPress={onSubmitAccessCode}
-            title="Unlock Camera"
+            title={isVerifying ? "Verifying…" : "Unlock Camera"}
           />
         </View>
       )}
@@ -902,9 +891,8 @@ function LocationCard({
   onPress: () => void;
 }) {
   const publicCameraCount = location.cameras.filter((camera) => Boolean(camera.url)).length;
-  const vipCameraCount = location.vipCameras.filter((camera) => Boolean(camera.url)).length;
   const availabilityLabel = publicCameraCount > 0
-    ? `${publicCameraCount} camera${publicCameraCount === 1 ? "" : "s"}${vipCameraCount > 0 ? ` + ${vipCameraCount} VIP` : ""}`
+    ? `${publicCameraCount} camera${publicCameraCount === 1 ? "" : "s"}${location.supportsVipAccess ? " + VIP" : ""}`
     : "Coming soon";
 
   return (
